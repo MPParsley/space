@@ -1,8 +1,22 @@
 // OrbitalSystem — advances all planet and moon angles each frame
+//
+// Planets use true elliptical orbits (Kepler parametric form):
+//   x = a·cos(θ) − c     y = b·sin(θ)
+// where a = semi-major axis (orbitRadius), e = eccentricity,
+//       b = a·√(1−e²) (semi-minor axis), c = a·e (focal offset)
+// The Sun sits at one focus (world origin).
+//
 // TIME_SCALE: 1 real second = DAYS_PER_SECOND simulated days
-// At 8 days/sec, Earth (365 day orbit) completes one revolution in ~45 real seconds
+// At 8 days/s, Earth (365 day orbit) completes one revolution in ~45 real seconds.
+//
+// Moons use a separate, much smaller time scale so that fast inner moons
+// (Phobos 0.32 d, Enceladus 1.37 d) are still visibly orbital rather than
+// a blur. MAX_MOON_OMEGA caps angular speed so no moon orbits faster than
+// once every 2 real seconds.
 
 const DAYS_PER_SECOND = 8;
+const MOON_DAYS_PER_SECOND = 1.5;
+const MAX_MOON_OMEGA = Math.PI; // rad/s → 2-second minimum orbital period
 const TWO_PI = Math.PI * 2;
 
 export class OrbitalSystem {
@@ -11,25 +25,33 @@ export class OrbitalSystem {
   }
 
   update(delta) {
-    const dtSeconds = delta / 1000;
-    const daysElapsed = DAYS_PER_SECOND * dtSeconds;
+    const dt = delta / 1000;
 
     for (const planet of this.planets) {
-      // Advance planet orbit angle
-      planet.orbitAngle += (TWO_PI / planet.data.orbitalPeriod) * daysElapsed;
+      const { orbitRadius: a, orbitalPeriod, eccentricity: e = 0 } = planet.data;
 
-      // Update planet container position
-      const px = Math.cos(planet.orbitAngle) * planet.data.orbitRadius;
-      const py = Math.sin(planet.orbitAngle) * planet.data.orbitRadius;
-      planet.container.setPosition(px, py);
+      // Advance eccentric anomaly (good enough for circular/near-circular orbits)
+      planet.orbitAngle += (TWO_PI / orbitalPeriod) * DAYS_PER_SECOND * dt;
 
-      // Advance each moon within the planet container (local coords)
+      // Ellipse parameters
+      const b = a * Math.sqrt(1 - e * e); // semi-minor axis
+      const c = a * e;                    // focal offset (Sun at origin)
+
+      planet.container.setPosition(
+        a * Math.cos(planet.orbitAngle) - c,
+        b * Math.sin(planet.orbitAngle),
+      );
+
+      // Moons — circular orbits relative to parent planet container
       for (const moon of planet.moons) {
-        moon.orbitAngle += (TWO_PI / moon.data.orbitalPeriod) * daysElapsed;
+        const omega = Math.min(
+          (TWO_PI / moon.data.orbitalPeriod) * MOON_DAYS_PER_SECOND,
+          MAX_MOON_OMEGA,
+        );
+        moon.orbitAngle += omega * dt;
 
         const mx = Math.cos(moon.orbitAngle) * moon.data.orbitRadius;
         const my = Math.sin(moon.orbitAngle) * moon.data.orbitRadius;
-
         moon.body.setPosition(mx, my);
         moon.glow.setPosition(mx, my);
         moon.label.setPosition(mx, my - moon.data.radius - 7);
