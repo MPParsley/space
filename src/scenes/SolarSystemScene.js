@@ -17,8 +17,11 @@ export default class SolarSystemScene extends Phaser.Scene {
     // ---- Starfield background ----
     this._createStarfield();
 
-    // ---- Orbit path rings (elliptical) ----
+    // ---- Orbit path rings (elliptical, drawn once) ----
     this._drawOrbitRings();
+
+    // ---- Gravity influence rings (redrawn every frame, depth 1) ----
+    this._gravRingG = this.add.graphics().setDepth(1);
 
     // ---- Celestial bodies ----
     this.star = new Star(this, SUN);
@@ -28,12 +31,16 @@ export default class SolarSystemScene extends Phaser.Scene {
     const earth = this.planets.find(p => p.data.id === 'earth');
     this.ship = new Spaceship(this, earth.worldX + 65, earth.worldY);
 
-    // ---- Course indicator ----
+    // ---- Overlay graphics ----
     this.courseLine = this.add.graphics().setDepth(3);
-
-    // ---- Hover ring ----
-    this._hoverG = this.add.graphics().setDepth(10);
+    this._hoverG    = this.add.graphics().setDepth(10);
     this._hoveredBody = null;
+
+    // ---- Gravity zone state ----
+    // Pre-populate with bodies the ship already starts inside so their
+    // dialogue doesn't fire on the first frame.
+    this._inGravityZone = new Set();
+    this._initGravityZones();
 
     // ---- Systems ----
     this.orbitalSystem = new OrbitalSystem(this.planets);
@@ -48,14 +55,8 @@ export default class SolarSystemScene extends Phaser.Scene {
     // ---- Keyboard: single addKeys call for arrow keys + WASD ----
     const K = Phaser.Input.Keyboard.KeyCodes;
     this._keys = this.input.keyboard.addKeys({
-      up:    K.UP,
-      down:  K.DOWN,
-      left:  K.LEFT,
-      right: K.RIGHT,
-      w:     K.W,
-      s:     K.S,
-      a:     K.A,
-      d:     K.D,
+      up: K.UP, down: K.DOWN, left: K.LEFT, right: K.RIGHT,
+      w: K.W,   s: K.S,      a: K.A,       d: K.D,
     });
 
     // ---- Hover detection (mouse / trackpad; skipped during drag) ----
@@ -65,7 +66,6 @@ export default class SolarSystemScene extends Phaser.Scene {
     });
     this.input.on('pointerout', () => this._clearHover());
 
-    // Delay before soft-follow starts (lets focusOn tween finish first)
     this._followDelay = 0;
     this._isThrusting = false;
 
@@ -80,13 +80,15 @@ export default class SolarSystemScene extends Phaser.Scene {
     this.orbitalSystem.update(delta);
     this._handleManualInput(delta);
     this.navSystem.update(delta);
+    this._applyGravity(delta);
     this._updateCourseLine();
     this._updateLabels();
     this._softFollowShip(delta);
+    this._drawGravityRings(time);
     this._drawHoverRing(time);
   }
 
-  // ------------------------------------------------------------------ private
+  // ------------------------------------------------------------------ Stars / rings
 
   _createStarfield() {
     const SIZE = 3600;
@@ -110,10 +112,108 @@ export default class SolarSystemScene extends Phaser.Scene {
       const e = data.eccentricity || 0;
       const b = a * Math.sqrt(1 - e * e);
       const c = a * e;
-
       const alpha = 0.22 - i * 0.012;
       g.lineStyle(1, 0x2244AA, Math.max(0.06, alpha));
       g.strokeEllipse(-c, 0, a * 2, b * 2);
+    }
+  }
+
+  // ------------------------------------------------------------------ Gravity
+
+  /** Returns a flat list of all bodies with a consistent {data, worldX, worldY} shape. */
+  _getAllBodies() {
+    return [
+      { data: SUN, worldX: 0, worldY: 0 },
+      ...this.planets.map(p => ({ data: p.data, worldX: p.worldX, worldY: p.worldY })),
+      ...this.planets.flatMap(p =>
+        p.moons.map(m => ({ data: m.data, worldX: m.worldX, worldY: m.worldY })),
+      ),
+    ];
+  }
+
+  /** Gravity parameters for a given data object. */
+  _gravParams(data) {
+    // The Sun gets a tighter sphere so ships near the inner planets aren't
+    // always inside it; other bodies scale with visual radius.
+    const radius = data.id === 'sun'
+      ? data.radius * 3                       // 55 × 3 = 165 px
+      : Math.max(data.radius * 5, 45);        // at least 45 px for tiny moons
+    // Strength = gravitational acceleration (units/s²) at the sphere boundary
+    const strength = data.radius * 0.3 + 3;
+    return { radius, strength };
+  }
+
+  /** Silently mark bodies the ship already starts inside — prevents
+   *  their entry-dialogue from firing on frame 0. */
+  _initGravityZones() {
+    for (const body of this._getAllBodies()) {
+      const dx = body.worldX - this.ship.x;
+      const dy = body.worldY - this.ship.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < this._gravParams(body.data).radius) {
+        this._inGravityZone.add(body.data.id);
+      }
+    }
+  }
+
+  _applyGravity(delta) {
+    const dt = delta / 1000;
+    const nowInZone = new Set();
+    const isManual = !this.navSystem.target; // gravity forces only in manual mode
+
+    for (const body of this._getAllBodies()) {
+      const dx = body.worldX - this.ship.x;
+      const dy = body.worldY - this.ship.y;
+      const dist = Math.hypot(dx, dy);
+      const { radius: gravRadius, strength } = this._gravParams(body.data);
+
+      if (dist >= gravRadius || dist < 0.1) continue;
+
+      nowInZone.add(body.data.id);
+
+      // ---- Gravitational force (manual flight only) ----
+      if (isManual) {
+        // Inverse-square, clamped near the surface to avoid blow-up
+        const clampedDist = Math.max(dist, body.data.radius + 5);
+        const force = strength * Math.pow(gravRadius / clampedDist, 2);
+        this.navSystem.addVelocity(
+          (dx / dist) * force * dt,
+          (dy / dist) * force * dt,
+        );
+      }
+
+      // ---- Dialogue on entry (any mode) ----
+      if (!this._inGravityZone.has(body.data.id) && !this.scene.isActive('DialogueScene')) {
+        this.scene.launch('DialogueScene', { bodyData: body.data });
+        this.scene.bringToTop('DialogueScene');
+      }
+    }
+
+    this._inGravityZone = nowInZone;
+  }
+
+  _drawGravityRings(time) {
+    const g = this._gravRingG;
+    g.clear();
+
+    for (const body of this._getAllBodies()) {
+      const { radius: gravRadius } = this._gravParams(body.data);
+      const inZone = this._inGravityZone.has(body.data.id);
+
+      let lineWidth, color, alpha;
+      if (inZone) {
+        const pulse = 0.5 + 0.5 * Math.sin(time * 0.003);
+        lineWidth = 1.5;
+        color = body.data.color || 0x8899BB;
+        alpha = 0.10 + 0.08 * pulse;
+      } else {
+        lineWidth = 1;
+        color = 0x6688AA;
+        alpha = 0.06;
+      }
+
+      g.lineStyle(lineWidth, color, alpha);
+      g.strokeCircle(body.worldX, body.worldY, gravRadius);
     }
   }
 
@@ -139,16 +239,12 @@ export default class SolarSystemScene extends Phaser.Scene {
       }
     }
 
-    // Compare object references so the hover ping fires only on body change
     const prevObj = this._hoveredBody ? this._hoveredBody.obj : null;
     const newObj  = best ? best.obj : null;
     this._hoveredBody = best;
 
     this.game.canvas.style.cursor = newObj ? 'pointer' : 'default';
-
-    if (newObj !== prevObj && newObj) {
-      this.soundSystem.playHover();
-    }
+    if (newObj !== prevObj && newObj) this.soundSystem.playHover();
   }
 
   _clearHover() {
@@ -166,15 +262,11 @@ export default class SolarSystemScene extends Phaser.Scene {
     const bodyR = data.hasRings ? data.ringOuterRadius : data.radius;
     const ringR = bodyR + 5;
 
-    // Outer soft halo
     this._hoverG.lineStyle(6, 0xFFFFFF, pulse * 0.12);
     this._hoverG.strokeCircle(obj.worldX, obj.worldY, ringR + 4);
-
-    // Main highlight ring
     this._hoverG.lineStyle(1.5, 0xFFFFFF, pulse * 0.8);
     this._hoverG.strokeCircle(obj.worldX, obj.worldY, ringR);
 
-    // Faint fill for tiny moons
     if (data.radius <= 7) {
       this._hoverG.fillStyle(0xFFFFFF, pulse * 0.08);
       this._hoverG.fillCircle(obj.worldX, obj.worldY, ringR);
@@ -190,13 +282,11 @@ export default class SolarSystemScene extends Phaser.Scene {
     let nx = 0;
     let ny = 0;
 
-    // Arrow keys + WASD (all registered in a single addKeys call)
     if (this._keys.left.isDown  || this._keys.a.isDown) nx -= 1;
     if (this._keys.right.isDown || this._keys.d.isDown) nx += 1;
     if (this._keys.up.isDown    || this._keys.w.isDown) ny -= 1;
     if (this._keys.down.isDown  || this._keys.s.isDown) ny += 1;
 
-    // Virtual joystick
     if (joystick && joystick.active) {
       nx += joystick.dx;
       ny += joystick.dy;
@@ -256,7 +346,7 @@ export default class SolarSystemScene extends Phaser.Scene {
 
   _updateLabels() {
     const zoom = this.cameras.main.zoom;
-    const hov = this._hoveredBody && this._hoveredBody.obj;
+    const hov  = this._hoveredBody && this._hoveredBody.obj;
 
     this.star.label.setVisible(zoom >= 0.14 || hov === this.star);
 
