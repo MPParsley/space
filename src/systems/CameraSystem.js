@@ -51,6 +51,10 @@ export class CameraSystem {
   }
 
   _down(ptr) {
+    // Ignore touches inside the virtual joystick area so they don't pan/tap
+    const ui = this.scene.scene.get('UIScene');
+    if (ui && ui._isJoystickTouch && ui._isJoystickTouch(ptr.x, ptr.y)) return;
+
     this.ptrs.set(ptr.id, {
       x: ptr.x, y: ptr.y,
       startX: ptr.x, startY: ptr.y,
@@ -147,6 +151,11 @@ export class CameraSystem {
       this.dragScrollX = this.camera.scrollX;
       this.dragScrollY = this.camera.scrollY;
     }
+  }
+
+  /** True while any pointer is actively panning/pinching — used by soft-follow. */
+  isPanning() {
+    return this.ptrs.size > 0;
   }
 
   // Smoothly zoom in and centre on a world point

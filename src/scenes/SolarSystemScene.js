@@ -16,7 +16,7 @@ export default class SolarSystemScene extends Phaser.Scene {
     // ---- Starfield background (world-space, scrolls very slowly) ----
     this._createStarfield();
 
-    // ---- Orbit path rings ----
+    // ---- Orbit path rings (elliptical) ----
     this._drawOrbitRings();
 
     // ---- Celestial bodies ----
@@ -39,6 +39,19 @@ export default class SolarSystemScene extends Phaser.Scene {
     this.cameraSystem = new CameraSystem(this);
     this.cameraSystem.onTap = (sx, sy) => this._handleTap(sx, sy);
 
+    // ---- Keyboard input (arrow keys + WASD) ----
+    this._cursors = this.input.keyboard.createCursorKeys();
+    this._wasd = this.input.keyboard.addKeys({
+      up:    Phaser.Input.Keyboard.KeyCodes.W,
+      down:  Phaser.Input.Keyboard.KeyCodes.S,
+      left:  Phaser.Input.Keyboard.KeyCodes.A,
+      right: Phaser.Input.Keyboard.KeyCodes.D,
+    });
+
+    // Delay before soft-follow starts (lets focusOn tween finish first)
+    this._followDelay = 0;
+    this._isThrusting = false;
+
     // ---- Launch the UI overlay scene ----
     this.scene.launch('UIScene');
 
@@ -48,9 +61,11 @@ export default class SolarSystemScene extends Phaser.Scene {
 
   update(_time, delta) {
     this.orbitalSystem.update(delta);
+    this._handleManualInput(delta);
     this.navSystem.update(delta);
     this._updateCourseLine();
     this._updateLabels();
+    this._softFollowShip(delta);
   }
 
   // ------------------------------------------------------------------ private
@@ -74,10 +89,67 @@ export default class SolarSystemScene extends Phaser.Scene {
   _drawOrbitRings() {
     const g = this.add.graphics();
     for (let i = 0; i < PLANETS.length; i++) {
+      const data = PLANETS[i];
+      const a = data.orbitRadius;
+      const e = data.eccentricity || 0;
+      const b = a * Math.sqrt(1 - e * e); // semi-minor axis
+      const c = a * e;                    // focal offset
+
       const alpha = 0.22 - i * 0.012;
       g.lineStyle(1, 0x2244AA, Math.max(0.06, alpha));
-      g.strokeCircle(0, 0, PLANETS[i].orbitRadius);
+      // strokeEllipse(cx, cy, width, height) — centre is at the ellipse centre,
+      // not the focus; shift left by c so the Sun (at origin) is at one focus.
+      g.strokeEllipse(-c, 0, a * 2, b * 2);
     }
+  }
+
+  _handleManualInput(delta) {
+    const ui = this._ui();
+    const joystick = ui && ui.joystick;
+
+    let nx = 0;
+    let ny = 0;
+
+    // Keyboard
+    if (this._cursors.left.isDown  || this._wasd.left.isDown)  nx -= 1;
+    if (this._cursors.right.isDown || this._wasd.right.isDown) nx += 1;
+    if (this._cursors.up.isDown    || this._wasd.up.isDown)    ny -= 1;
+    if (this._cursors.down.isDown  || this._wasd.down.isDown)  ny += 1;
+
+    // Joystick
+    if (joystick && joystick.active) {
+      nx += joystick.dx;
+      ny += joystick.dy;
+    }
+
+    if (nx !== 0 || ny !== 0) {
+      const len = Math.hypot(nx, ny);
+      this.navSystem.applyThrust(nx / len, ny / len, delta);
+      this._isThrusting = true;
+    } else {
+      this._isThrusting = false;
+    }
+  }
+
+  _softFollowShip(delta) {
+    // Only follow when the ship is actually moving (manual or auto-nav)
+    const shouldFollow = this._isThrusting || !!this.navSystem.target;
+    if (!shouldFollow) return;
+    if (this.cameraSystem.isPanning()) return;
+
+    // Skip during focusOn tween (avoids fighting the tween animation)
+    if (this._followDelay > 0) {
+      this._followDelay -= delta;
+      return;
+    }
+
+    const cam = this.cameras.main;
+    const targetScrollX = this.ship.x - cam.width  * 0.5 / cam.zoom;
+    const targetScrollY = this.ship.y - cam.height * 0.5 / cam.zoom;
+    // Soft lerp — 6 % per frame-equivalent for smooth tracking
+    const factor = Math.min(0.06, 0.06 * (delta / 16.67));
+    cam.scrollX += (targetScrollX - cam.scrollX) * factor;
+    cam.scrollY += (targetScrollY - cam.scrollY) * factor;
   }
 
   _updateCourseLine() {
@@ -151,8 +223,9 @@ export default class SolarSystemScene extends Phaser.Scene {
     this.navSystem.setTarget(bodyObj);
     this._ui().setStatus('En route to ' + bodyObj.data.name + '…');
     this._ui().hideCard();
-    // Briefly follow the ship
+    // Brief zoom toward the ship, then soft-follow takes over
     this.cameraSystem.focusOn(this.ship.x, this.ship.y, 0.45, 600);
+    this._followDelay = 700; // wait for the tween to finish
   }
 
   _onDocked(bodyObj) {

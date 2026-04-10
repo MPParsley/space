@@ -78,9 +78,13 @@ export class Planet {
   }
 
   _applyOrbitalPosition() {
-    const x = Math.cos(this.orbitAngle) * this.data.orbitRadius;
-    const y = Math.sin(this.orbitAngle) * this.data.orbitRadius;
-    this.container.setPosition(x, y);
+    const { orbitRadius: a, eccentricity: e = 0 } = this.data;
+    const b = a * Math.sqrt(1 - e * e);
+    const c = a * e;
+    this.container.setPosition(
+      a * Math.cos(this.orbitAngle) - c,
+      b * Math.sin(this.orbitAngle),
+    );
   }
 
   // World position of planet centre

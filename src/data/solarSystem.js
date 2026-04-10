@@ -24,6 +24,7 @@ export const PLANETS = [
     color: 0xB5A99A,
     orbitRadius: 120,
     orbitalPeriod: 88,
+    eccentricity: 0.206,
     hasRings: false,
     moons: [],
     facts: [
@@ -40,6 +41,7 @@ export const PLANETS = [
     color: 0xDEB887,
     orbitRadius: 190,
     orbitalPeriod: 225,
+    eccentricity: 0.007,
     hasRings: false,
     moons: [],
     facts: [
@@ -56,6 +58,7 @@ export const PLANETS = [
     color: 0x4B9CD3,
     orbitRadius: 270,
     orbitalPeriod: 365,
+    eccentricity: 0.017,
     hasRings: false,
     moons: [
       {
@@ -87,6 +90,7 @@ export const PLANETS = [
     color: 0xC1440E,
     orbitRadius: 360,
     orbitalPeriod: 687,
+    eccentricity: 0.093,
     hasRings: false,
     moons: [
       {
@@ -130,6 +134,7 @@ export const PLANETS = [
     color: 0xC88B3A,
     orbitRadius: 520,
     orbitalPeriod: 4333,
+    eccentricity: 0.049,
     hasRings: false,
     moons: [
       {
@@ -199,6 +204,7 @@ export const PLANETS = [
     color: 0xEAD49A,
     orbitRadius: 700,
     orbitalPeriod: 10759,
+    eccentricity: 0.057,
     hasRings: true,
     ringInnerRadius: 50,
     ringOuterRadius: 84,
@@ -245,6 +251,7 @@ export const PLANETS = [
     color: 0x7FFFD4,
     orbitRadius: 900,
     orbitalPeriod: 30687,
+    eccentricity: 0.046,
     hasRings: true,
     ringInnerRadius: 30,
     ringOuterRadius: 40,
@@ -289,6 +296,7 @@ export const PLANETS = [
     color: 0x4169E1,
     orbitRadius: 1100,
     orbitalPeriod: 60190,
+    eccentricity: 0.010,
     hasRings: false,
     moons: [
       {
