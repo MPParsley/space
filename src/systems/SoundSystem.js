@@ -113,6 +113,49 @@ export class SoundSystem {
     osc.stop(t + 0.11);
   }
 
+  /** Short laser zap when firing a bullet. */
+  playShoot() {
+    const ctx = this._ctx();
+    if (!ctx) return;
+    const t   = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type  = 'square';
+    osc.frequency.setValueAtTime(1600, t);
+    osc.frequency.exponentialRampToValueAtTime(220, t + 0.13);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.12, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.16);
+  }
+
+  /** Noise burst when an asteroid is destroyed. */
+  playExplode() {
+    const ctx  = this._ctx();
+    if (!ctx) return;
+    const t    = ctx.currentTime;
+    const rate = ctx.sampleRate;
+    const len  = Math.ceil(rate * 0.35);
+    const buf  = ctx.createBuffer(1, len, rate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const src  = ctx.createBufferSource();
+    src.buffer = buf;
+    const filt = ctx.createBiquadFilter();
+    filt.type  = 'lowpass';
+    filt.frequency.value = 900;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.22, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    src.connect(filt);
+    filt.connect(gain);
+    gain.connect(ctx.destination);
+    src.start(t);
+    src.stop(t + 0.35);
+  }
+
   // ------------------------------------------------------------------ private
 
   _ctx() {

@@ -26,6 +26,13 @@ export class NavigationSystem {
 
   // ------------------------------------------------------------------ public
 
+  /** Apply an external velocity delta (e.g. gravity) without affecting drag
+   *  or the auto-nav target. Called once per frame by the gravity system. */
+  addVelocity(dvx, dvy) {
+    this.vx += dvx;
+    this.vy += dvy;
+  }
+
   setTarget(bodyObj) {
     this.target = bodyObj;
   }

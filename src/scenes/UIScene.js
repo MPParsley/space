@@ -28,6 +28,16 @@ export default class UIScene extends Phaser.Scene {
       strokeThickness: 3,
     });
 
+    // ---- Score counter (top-right) ----
+    this.scoreText = this.add.text(width - 14, 14, 'Blasted: 0', {
+      fontSize: '14px',
+      fontFamily: "'Arial', sans-serif",
+      fontStyle: 'bold',
+      color: '#FFCC44',
+      stroke: '#000820',
+      strokeThickness: 4,
+    }).setOrigin(1, 0);
+
     // ---- Zoom hint (fades out) ----
     this.hintText = this.add.text(width * 0.5, height - 18,
       'Pinch to zoom  •  Tap a planet to explore',
@@ -51,10 +61,15 @@ export default class UIScene extends Phaser.Scene {
     // ---- Virtual joystick (bottom-right) ----
     this._createJoystick(width, height);
 
+    // ---- Fire button (bottom-left) ----
+    this._createFireButton(width, height);
+
     // Resize handler
     this.scale.on('resize', gameSize => {
       this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height);
       this._repositionJoystick(gameSize.width, gameSize.height);
+      this._repositionFireButton(gameSize.width, gameSize.height);
+      this.scoreText.setPosition(gameSize.width - 14, 14);
     });
   }
 
@@ -271,10 +286,80 @@ export default class UIScene extends Phaser.Scene {
     return Math.hypot(x - this._joyCenter.x, y - this._joyCenter.y) < r;
   }
 
+  // ------------------------------------------------------------------ Fire button
+
+  _createFireButton(width, height) {
+    const r  = 40;
+    this._fireBtnR      = r;
+    this._fireBtnCenter = { x: r + 20, y: height - r - 20 };
+    this.fireBtn        = { active: false };
+
+    this._fireBtnG = this.add.graphics()
+      .setPosition(this._fireBtnCenter.x, this._fireBtnCenter.y)
+      .setScrollFactor(0).setAlpha(0.8);
+    this._redrawFireBtn(false);
+
+    this._fireBtnG.setInteractive(
+      new Phaser.Geom.Circle(0, 0, r),
+      Phaser.Geom.Circle.Contains,
+    );
+
+    this._fireBtnLabel = this.add.text(
+      this._fireBtnCenter.x, this._fireBtnCenter.y, 'FIRE', {
+        fontSize: '15px',
+        fontFamily: "'Arial', sans-serif",
+        fontStyle: 'bold',
+        color: '#FF8800',
+        stroke: '#000000',
+        strokeThickness: 3,
+      },
+    ).setOrigin(0.5, 0.5).setScrollFactor(0);
+
+    this._fireBtnG.on('pointerdown', () => {
+      this.fireBtn.active = true;
+      this._redrawFireBtn(true);
+    });
+    this._fireBtnG.on('pointerup', () => {
+      this.fireBtn.active = false;
+      this._redrawFireBtn(false);
+    });
+    this._fireBtnG.on('pointerout', () => {
+      this.fireBtn.active = false;
+      this._redrawFireBtn(false);
+    });
+  }
+
+  _redrawFireBtn(pressed) {
+    const g = this._fireBtnG;
+    const r = this._fireBtnR;
+    g.clear();
+    g.fillStyle(pressed ? 0x5A2000 : 0x1E0800, 0.92);
+    g.fillCircle(0, 0, r);
+    g.lineStyle(2, pressed ? 0xFF9922 : 0xFF5500, 1);
+    g.strokeCircle(0, 0, r);
+    // Inner ring for visual depth
+    g.lineStyle(1, pressed ? 0xFFCC66 : 0xAA4400, 0.5);
+    g.strokeCircle(0, 0, r * 0.72);
+  }
+
+  _repositionFireButton(width, height) {
+    const r  = this._fireBtnR;
+    const bx = r + 20;
+    const by = height - r - 20;
+    this._fireBtnCenter = { x: bx, y: by };
+    this._fireBtnG.setPosition(bx, by);
+    this._fireBtnLabel.setPosition(bx, by);
+  }
+
+  _isNearFireBtn(x, y) {
+    if (!this._fireBtnCenter) return false;
+    return Math.hypot(x - this._fireBtnCenter.x, y - this._fireBtnCenter.y) < this._fireBtnR + 20;
+  }
+
   /** CameraSystem calls this to skip its pan/tap logic for joystick touches. */
   _isJoystickTouch(x, y) {
     if (this._cardVisible) return false;
-    return this._isNearJoystick(x, y);
+    return this._isNearJoystick(x, y) || this._isNearFireBtn(x, y);
   }
 
   // ------------------------------------------------------------------ Public API
@@ -344,5 +429,9 @@ export default class UIScene extends Phaser.Scene {
 
   setStatus(text) {
     this.statusText.setText(text);
+  }
+
+  setScore(n) {
+    this.scoreText.setText('Blasted: ' + n);
   }
 }
