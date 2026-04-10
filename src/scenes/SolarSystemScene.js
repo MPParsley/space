@@ -6,6 +6,7 @@ import { OrbitalSystem } from '../systems/OrbitalSystem.js';
 import { NavigationSystem } from '../systems/NavigationSystem.js';
 import { CameraSystem } from '../systems/CameraSystem.js';
 import { SoundSystem } from '../systems/SoundSystem.js';
+import { AsteroidSystem } from '../systems/AsteroidSystem.js';
 
 // Main game scene — solar system navigation mode
 export default class SolarSystemScene extends Phaser.Scene {
@@ -46,6 +47,10 @@ export default class SolarSystemScene extends Phaser.Scene {
     this.orbitalSystem = new OrbitalSystem(this.planets);
     this.soundSystem   = new SoundSystem();
 
+    this.asteroidSystem = new AsteroidSystem(this);
+    this.asteroidSystem.onScore   = score => this._ui().setScore(score);
+    this.asteroidSystem.onDestroy = ()    => this.soundSystem.playExplode();
+
     this.navSystem = new NavigationSystem(this, this.ship);
     this.navSystem.onDocked = bodyObj => this._onDocked(bodyObj);
 
@@ -57,6 +62,7 @@ export default class SolarSystemScene extends Phaser.Scene {
     this._keys = this.input.keyboard.addKeys({
       up: K.UP, down: K.DOWN, left: K.LEFT, right: K.RIGHT,
       w: K.W,   s: K.S,      a: K.A,       d: K.D,
+      space: K.SPACE,
     });
 
     // ---- Hover detection (mouse / trackpad; skipped during drag) ----
@@ -68,6 +74,7 @@ export default class SolarSystemScene extends Phaser.Scene {
 
     this._followDelay = 0;
     this._isThrusting = false;
+    this._fireTimer   = 0;
 
     // ---- Launch the UI overlay scene ----
     this.scene.launch('UIScene');
@@ -79,13 +86,29 @@ export default class SolarSystemScene extends Phaser.Scene {
   update(time, delta) {
     this.orbitalSystem.update(delta);
     this._handleManualInput(delta);
+    this._handleFiring(delta);
     this.navSystem.update(delta);
     this._applyGravity(delta);
+    this.asteroidSystem.update(delta, this.cameras.main);
     this._updateCourseLine();
     this._updateLabels();
     this._softFollowShip(delta);
     this._drawGravityRings(time);
     this._drawHoverRing(time);
+  }
+
+  _handleFiring(delta) {
+    this._fireTimer -= delta;
+    if (this._fireTimer > 0) return;
+
+    const ui = this._ui();
+    const fireDown = this._keys.space.isDown || (ui && ui.fireBtn && ui.fireBtn.active);
+    if (!fireDown) return;
+
+    const angle = this.ship.container.rotation - Math.PI / 2;
+    this.asteroidSystem.shoot(this.ship.x, this.ship.y, angle);
+    this.soundSystem.playShoot();
+    this._fireTimer = 350; // ms between shots (fire rate)
   }
 
   // ------------------------------------------------------------------ Stars / rings
