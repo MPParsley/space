@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+
+  <!-- Mobile viewport: disable browser pinch-zoom so the game can handle it -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0,
+        maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+  <!-- iOS full-screen webapp support -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <!-- Android Chrome theme -->
+  <meta name="theme-color" content="#000818">
+
+  <meta name="description" content="Space Explorer — navigate our solar system and learn about every planet!">
+  <title>Space Explorer</title>
+
+  <link rel="stylesheet" href="src/styles/main.css">
+
+  <!--
+    Phaser 3.90 — loaded as a regular (non-module) script so it registers
+    the global `Phaser` before our ES modules execute.
+  -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"
+          crossorigin="anonymous"></script>
+</head>
+<body>
+
+  <!-- Phaser mounts its canvas inside this div -->
+  <div id="game-container"></div>
+
+  <!-- Game entry point — ES module; imports all scenes -->
+  <script type="module" src="src/main.js"></script>
+
+  <!-- Service worker registration for offline play -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('./sw.js').catch(function () {
+          // SW not available (e.g. non-HTTPS) — game still works online
+        });
+      });
+    }
+  </script>
+
+</body>
+</html>

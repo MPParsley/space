@@ -1,0 +1,37 @@
+/* Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Full-screen game canvas — no scroll, no bounce */
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000818;
+
+  /* Prevent the browser from intercepting two-finger pinch for page zoom.
+     The game handles all touch gestures itself. */
+  touch-action: none;
+
+  /* Disable text selection (prevents accidental highlights during touch) */
+  user-select: none;
+  -webkit-user-select: none;
+
+  /* Avoid tap highlight flash on mobile Safari */
+  -webkit-tap-highlight-color: transparent;
+}
+
+#game-container {
+  width: 100%;
+  height: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+}
+
+canvas {
+  display: block;
+}
