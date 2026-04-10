@@ -9,14 +9,21 @@
 // TIME_SCALE: 1 real second = DAYS_PER_SECOND simulated days
 // At 8 days/s, Earth (365 day orbit) completes one revolution in ~45 real seconds.
 //
-// Moons use a separate, much smaller time scale so that fast inner moons
-// (Phobos 0.32 d, Enceladus 1.37 d) are still visibly orbital rather than
-// a blur. MAX_MOON_OMEGA caps angular speed so no moon orbits faster than
-// once every 2 real seconds.
+// Moons use a separate, much smaller time scale. MAX_MOON_OMEGA enforces a
+// minimum orbital period so even Phobos (0.32 d) and Enceladus (1.37 d) are
+// watchable rather than a blur.
+//
+// At these settings:
+//   Phobos / Io / Enceladus / Miranda  →  ~20 s / orbit  (capped)
+//   Europa                             →  ~24 s / orbit
+//   Triton                             →  ~39 s / orbit
+//   Ganymede / Titania                 →  ~48–58 s / orbit
+//   Titan / Callisto                   →  ~1.8 min / orbit
+//   Earth's Moon                       →  ~3 min / orbit
 
 const DAYS_PER_SECOND = 8;
-const MOON_DAYS_PER_SECOND = 1.5;
-const MAX_MOON_OMEGA = Math.PI; // rad/s → 2-second minimum orbital period
+const MOON_DAYS_PER_SECOND = 0.15;
+const MAX_MOON_OMEGA = (Math.PI * 2) / 20; // rad/s → 20-second minimum orbital period
 const TWO_PI = Math.PI * 2;
 
 export class OrbitalSystem {

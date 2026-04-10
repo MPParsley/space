@@ -5,6 +5,7 @@ import { Spaceship } from '../entities/Spaceship.js';
 import { OrbitalSystem } from '../systems/OrbitalSystem.js';
 import { NavigationSystem } from '../systems/NavigationSystem.js';
 import { CameraSystem } from '../systems/CameraSystem.js';
+import { SoundSystem } from '../systems/SoundSystem.js';
 
 // Main game scene — solar system navigation mode
 export default class SolarSystemScene extends Phaser.Scene {
@@ -13,7 +14,7 @@ export default class SolarSystemScene extends Phaser.Scene {
   }
 
   create() {
-    // ---- Starfield background (world-space, scrolls very slowly) ----
+    // ---- Starfield background ----
     this._createStarfield();
 
     // ---- Orbit path rings (elliptical) ----
@@ -27,15 +28,16 @@ export default class SolarSystemScene extends Phaser.Scene {
     const earth = this.planets.find(p => p.data.id === 'earth');
     this.ship = new Spaceship(this, earth.worldX + 65, earth.worldY);
 
-    // ---- Course indicator (drawn each frame when navigating) ----
+    // ---- Course indicator ----
     this.courseLine = this.add.graphics().setDepth(3);
 
-    // ---- Hover ring (drawn each frame over everything else) ----
+    // ---- Hover ring ----
     this._hoverG = this.add.graphics().setDepth(10);
     this._hoveredBody = null;
 
     // ---- Systems ----
     this.orbitalSystem = new OrbitalSystem(this.planets);
+    this.soundSystem   = new SoundSystem();
 
     this.navSystem = new NavigationSystem(this, this.ship);
     this.navSystem.onDocked = bodyObj => this._onDocked(bodyObj);
@@ -43,18 +45,22 @@ export default class SolarSystemScene extends Phaser.Scene {
     this.cameraSystem = new CameraSystem(this);
     this.cameraSystem.onTap = (sx, sy) => this._handleTap(sx, sy);
 
-    // ---- Keyboard input (arrow keys + WASD) ----
-    this._cursors = this.input.keyboard.createCursorKeys();
-    this._wasd = this.input.keyboard.addKeys({
-      up:    Phaser.Input.Keyboard.KeyCodes.W,
-      down:  Phaser.Input.Keyboard.KeyCodes.S,
-      left:  Phaser.Input.Keyboard.KeyCodes.A,
-      right: Phaser.Input.Keyboard.KeyCodes.D,
+    // ---- Keyboard: single addKeys call for arrow keys + WASD ----
+    const K = Phaser.Input.Keyboard.KeyCodes;
+    this._keys = this.input.keyboard.addKeys({
+      up:    K.UP,
+      down:  K.DOWN,
+      left:  K.LEFT,
+      right: K.RIGHT,
+      w:     K.W,
+      s:     K.S,
+      a:     K.A,
+      d:     K.D,
     });
 
-    // ---- Hover detection (mouse / trackpad; no-op during drag or touch) ----
+    // ---- Hover detection (mouse / trackpad; skipped during drag) ----
     this.input.on('pointermove', ptr => {
-      if (ptr.isDown) return; // skip while dragging
+      if (ptr.isDown) return;
       this._checkHover(ptr.x, ptr.y);
     });
     this.input.on('pointerout', () => this._clearHover());
@@ -133,8 +139,16 @@ export default class SolarSystemScene extends Phaser.Scene {
       }
     }
 
+    // Compare object references so the hover ping fires only on body change
+    const prevObj = this._hoveredBody ? this._hoveredBody.obj : null;
+    const newObj  = best ? best.obj : null;
     this._hoveredBody = best;
-    this.game.canvas.style.cursor = best ? 'pointer' : 'default';
+
+    this.game.canvas.style.cursor = newObj ? 'pointer' : 'default';
+
+    if (newObj !== prevObj && newObj) {
+      this.soundSystem.playHover();
+    }
   }
 
   _clearHover() {
@@ -148,11 +162,7 @@ export default class SolarSystemScene extends Phaser.Scene {
     if (!this._hoveredBody) return;
 
     const { obj, data } = this._hoveredBody;
-
-    // Slow pulse: alpha oscillates between ~0.35 and ~0.85
     const pulse = 0.6 + 0.4 * Math.sin(time * 0.004);
-
-    // Ring radius just outside the visible body (or its outer ring for Saturn/Uranus)
     const bodyR = data.hasRings ? data.ringOuterRadius : data.radius;
     const ringR = bodyR + 5;
 
@@ -164,7 +174,7 @@ export default class SolarSystemScene extends Phaser.Scene {
     this._hoverG.lineStyle(1.5, 0xFFFFFF, pulse * 0.8);
     this._hoverG.strokeCircle(obj.worldX, obj.worldY, ringR);
 
-    // For very small bodies (moons) add a faint fill so they're easy to see
+    // Faint fill for tiny moons
     if (data.radius <= 7) {
       this._hoverG.fillStyle(0xFFFFFF, pulse * 0.08);
       this._hoverG.fillCircle(obj.worldX, obj.worldY, ringR);
@@ -180,13 +190,13 @@ export default class SolarSystemScene extends Phaser.Scene {
     let nx = 0;
     let ny = 0;
 
-    // Keyboard
-    if (this._cursors.left.isDown  || this._wasd.left.isDown)  nx -= 1;
-    if (this._cursors.right.isDown || this._wasd.right.isDown) nx += 1;
-    if (this._cursors.up.isDown    || this._wasd.up.isDown)    ny -= 1;
-    if (this._cursors.down.isDown  || this._wasd.down.isDown)  ny += 1;
+    // Arrow keys + WASD (all registered in a single addKeys call)
+    if (this._keys.left.isDown  || this._keys.a.isDown) nx -= 1;
+    if (this._keys.right.isDown || this._keys.d.isDown) nx += 1;
+    if (this._keys.up.isDown    || this._keys.w.isDown) ny -= 1;
+    if (this._keys.down.isDown  || this._keys.s.isDown) ny += 1;
 
-    // Joystick
+    // Virtual joystick
     if (joystick && joystick.active) {
       nx += joystick.dx;
       ny += joystick.dy;
@@ -196,8 +206,10 @@ export default class SolarSystemScene extends Phaser.Scene {
       const len = Math.hypot(nx, ny);
       this.navSystem.applyThrust(nx / len, ny / len, delta);
       this._isThrusting = true;
+      this.soundSystem.thrusterOn();
     } else {
       this._isThrusting = false;
+      this.soundSystem.thrusterOff();
     }
   }
 
@@ -246,7 +258,6 @@ export default class SolarSystemScene extends Phaser.Scene {
     const zoom = this.cameras.main.zoom;
     const hov = this._hoveredBody && this._hoveredBody.obj;
 
-    // Labels always show for the hovered body regardless of zoom level
     this.star.label.setVisible(zoom >= 0.14 || hov === this.star);
 
     for (const planet of this.planets) {
@@ -298,6 +309,7 @@ export default class SolarSystemScene extends Phaser.Scene {
   _onDocked(bodyObj) {
     this._ui().setLocation(bodyObj.data.name);
     this._ui().setStatus('');
+    this.soundSystem.playDock();
     this.scene.launch('DialogueScene', { bodyData: bodyObj.data });
     this.scene.bringToTop('DialogueScene');
     this.cameraSystem.focusOn(bodyObj.worldX, bodyObj.worldY, 1.2, 900);

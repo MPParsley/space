@@ -2,7 +2,7 @@
 // On first load the SW caches all game files + the Phaser CDN script.
 // Subsequent loads (including offline) are served from the cache.
 
-const CACHE = 'space-explorer-v1';
+const CACHE = 'space-explorer-v2';
 
 // Derive the base path so this works at root (/) or a sub-path (/space/).
 const BASE = self.location.pathname.replace(/\/sw\.js$/, '');
@@ -22,6 +22,7 @@ const ASSETS = [
   BASE + '/src/systems/NavigationSystem.js',
   BASE + '/src/systems/CameraSystem.js',
   BASE + '/src/systems/DialogueSystem.js',
+  BASE + '/src/systems/SoundSystem.js',
   BASE + '/src/scenes/BootScene.js',
   BASE + '/src/scenes/MenuScene.js',
   BASE + '/src/scenes/SolarSystemScene.js',
