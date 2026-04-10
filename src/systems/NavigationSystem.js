@@ -98,13 +98,11 @@ export class NavigationSystem {
       return;
     }
 
-    // Steer velocity smoothly toward the target direction at AUTO_SPEED
+    // Directly set velocity toward target each frame — ship moves at full speed
+    // immediately and always tracks the orbiting target's current position.
     const nx = dx / dist;
     const ny = dy / dist;
-    const wantVx = nx * AUTO_SPEED;
-    const wantVy = ny * AUTO_SPEED;
-    const STEER = 4; // responsiveness (higher = snappier turns)
-    this.vx += (wantVx - this.vx) * Math.min(STEER * dt, 1);
-    this.vy += (wantVy - this.vy) * Math.min(STEER * dt, 1);
+    this.vx = nx * AUTO_SPEED;
+    this.vy = ny * AUTO_SPEED;
   }
 }
