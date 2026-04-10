@@ -30,6 +30,10 @@ export default class SolarSystemScene extends Phaser.Scene {
     // ---- Course indicator (drawn each frame when navigating) ----
     this.courseLine = this.add.graphics().setDepth(3);
 
+    // ---- Hover ring (drawn each frame over everything else) ----
+    this._hoverG = this.add.graphics().setDepth(10);
+    this._hoveredBody = null;
+
     // ---- Systems ----
     this.orbitalSystem = new OrbitalSystem(this.planets);
 
@@ -48,6 +52,13 @@ export default class SolarSystemScene extends Phaser.Scene {
       right: Phaser.Input.Keyboard.KeyCodes.D,
     });
 
+    // ---- Hover detection (mouse / trackpad; no-op during drag or touch) ----
+    this.input.on('pointermove', ptr => {
+      if (ptr.isDown) return; // skip while dragging
+      this._checkHover(ptr.x, ptr.y);
+    });
+    this.input.on('pointerout', () => this._clearHover());
+
     // Delay before soft-follow starts (lets focusOn tween finish first)
     this._followDelay = 0;
     this._isThrusting = false;
@@ -59,20 +70,19 @@ export default class SolarSystemScene extends Phaser.Scene {
     this.cameras.main.fadeIn(700, 0, 8, 24);
   }
 
-  update(_time, delta) {
+  update(time, delta) {
     this.orbitalSystem.update(delta);
     this._handleManualInput(delta);
     this.navSystem.update(delta);
     this._updateCourseLine();
     this._updateLabels();
     this._softFollowShip(delta);
+    this._drawHoverRing(time);
   }
 
   // ------------------------------------------------------------------ private
 
   _createStarfield() {
-    // Stars scattered across a large area; they scroll at 8 % of camera speed
-    // giving subtle depth without distracting from the planets.
     const SIZE = 3600;
     const g = this.add.graphics().setScrollFactor(0.08);
     const rng = new Phaser.Math.RandomDataGenerator(['ss-stars']);
@@ -92,16 +102,76 @@ export default class SolarSystemScene extends Phaser.Scene {
       const data = PLANETS[i];
       const a = data.orbitRadius;
       const e = data.eccentricity || 0;
-      const b = a * Math.sqrt(1 - e * e); // semi-minor axis
-      const c = a * e;                    // focal offset
+      const b = a * Math.sqrt(1 - e * e);
+      const c = a * e;
 
       const alpha = 0.22 - i * 0.012;
       g.lineStyle(1, 0x2244AA, Math.max(0.06, alpha));
-      // strokeEllipse(cx, cy, width, height) — centre is at the ellipse centre,
-      // not the focus; shift left by c so the Sun (at origin) is at one focus.
       g.strokeEllipse(-c, 0, a * 2, b * 2);
     }
   }
+
+  // ------------------------------------------------------------------ Hover
+
+  _checkHover(screenX, screenY) {
+    const wp = this.cameras.main.getWorldPoint(screenX, screenY);
+
+    const candidates = [
+      { obj: this.star, data: SUN },
+      ...this.planets.map(p => ({ obj: p, data: p.data })),
+      ...this.planets.flatMap(p => p.moons.map(m => ({ obj: m, data: m.data }))),
+    ];
+
+    let best = null;
+    let bestDist = Infinity;
+
+    for (const c of candidates) {
+      const dist = Phaser.Math.Distance.Between(wp.x, wp.y, c.obj.worldX, c.obj.worldY);
+      if (dist < c.obj.hitRadius && dist < bestDist) {
+        bestDist = dist;
+        best = c;
+      }
+    }
+
+    this._hoveredBody = best;
+    this.game.canvas.style.cursor = best ? 'pointer' : 'default';
+  }
+
+  _clearHover() {
+    this._hoveredBody = null;
+    this._hoverG.clear();
+    this.game.canvas.style.cursor = 'default';
+  }
+
+  _drawHoverRing(time) {
+    this._hoverG.clear();
+    if (!this._hoveredBody) return;
+
+    const { obj, data } = this._hoveredBody;
+
+    // Slow pulse: alpha oscillates between ~0.35 and ~0.85
+    const pulse = 0.6 + 0.4 * Math.sin(time * 0.004);
+
+    // Ring radius just outside the visible body (or its outer ring for Saturn/Uranus)
+    const bodyR = data.hasRings ? data.ringOuterRadius : data.radius;
+    const ringR = bodyR + 5;
+
+    // Outer soft halo
+    this._hoverG.lineStyle(6, 0xFFFFFF, pulse * 0.12);
+    this._hoverG.strokeCircle(obj.worldX, obj.worldY, ringR + 4);
+
+    // Main highlight ring
+    this._hoverG.lineStyle(1.5, 0xFFFFFF, pulse * 0.8);
+    this._hoverG.strokeCircle(obj.worldX, obj.worldY, ringR);
+
+    // For very small bodies (moons) add a faint fill so they're easy to see
+    if (data.radius <= 7) {
+      this._hoverG.fillStyle(0xFFFFFF, pulse * 0.08);
+      this._hoverG.fillCircle(obj.worldX, obj.worldY, ringR);
+    }
+  }
+
+  // ------------------------------------------------------------------ Input
 
   _handleManualInput(delta) {
     const ui = this._ui();
@@ -132,12 +202,10 @@ export default class SolarSystemScene extends Phaser.Scene {
   }
 
   _softFollowShip(delta) {
-    // Only follow when the ship is actually moving (manual or auto-nav)
     const shouldFollow = this._isThrusting || !!this.navSystem.target;
     if (!shouldFollow) return;
     if (this.cameraSystem.isPanning()) return;
 
-    // Skip during focusOn tween (avoids fighting the tween animation)
     if (this._followDelay > 0) {
       this._followDelay -= delta;
       return;
@@ -146,7 +214,6 @@ export default class SolarSystemScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const targetScrollX = this.ship.x - cam.width  * 0.5 / cam.zoom;
     const targetScrollY = this.ship.y - cam.height * 0.5 / cam.zoom;
-    // Soft lerp — 6 % per frame-equivalent for smooth tracking
     const factor = Math.min(0.06, 0.06 * (delta / 16.67));
     cam.scrollX += (targetScrollX - cam.scrollX) * factor;
     cam.scrollY += (targetScrollY - cam.scrollY) * factor;
@@ -177,12 +244,15 @@ export default class SolarSystemScene extends Phaser.Scene {
 
   _updateLabels() {
     const zoom = this.cameras.main.zoom;
-    this.star.label.setVisible(zoom >= 0.14);
+    const hov = this._hoveredBody && this._hoveredBody.obj;
+
+    // Labels always show for the hovered body regardless of zoom level
+    this.star.label.setVisible(zoom >= 0.14 || hov === this.star);
 
     for (const planet of this.planets) {
-      planet.label.setVisible(zoom >= 0.28);
+      planet.label.setVisible(zoom >= 0.28 || hov === planet);
       for (const moon of planet.moons) {
-        moon.label.setVisible(zoom >= 0.85);
+        moon.label.setVisible(zoom >= 0.85 || hov === moon);
       }
     }
   }
@@ -190,7 +260,6 @@ export default class SolarSystemScene extends Phaser.Scene {
   _handleTap(screenX, screenY) {
     const wp = this.cameras.main.getWorldPoint(screenX, screenY);
 
-    // Collect all tappable bodies
     const candidates = [
       { obj: this.star, data: SUN, navigable: false },
       ...this.planets.map(p => ({ obj: p, data: p.data, navigable: true })),
@@ -218,23 +287,19 @@ export default class SolarSystemScene extends Phaser.Scene {
     }
   }
 
-  // Called by UIScene when the "Travel Here" button is pressed
   travelTo(bodyObj) {
     this.navSystem.setTarget(bodyObj);
     this._ui().setStatus('En route to ' + bodyObj.data.name + '…');
     this._ui().hideCard();
-    // Brief zoom toward the ship, then soft-follow takes over
     this.cameraSystem.focusOn(this.ship.x, this.ship.y, 0.45, 600);
-    this._followDelay = 700; // wait for the tween to finish
+    this._followDelay = 700;
   }
 
   _onDocked(bodyObj) {
     this._ui().setLocation(bodyObj.data.name);
     this._ui().setStatus('');
-    // Launch dialogue overlay
     this.scene.launch('DialogueScene', { bodyData: bodyObj.data });
     this.scene.bringToTop('DialogueScene');
-    // Zoom in to show the planet
     this.cameraSystem.focusOn(bodyObj.worldX, bodyObj.worldY, 1.2, 900);
   }
 
