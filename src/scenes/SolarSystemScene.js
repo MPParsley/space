@@ -514,6 +514,20 @@ export default class SolarSystemScene extends Phaser.Scene {
     }
   }
 
+  /** Called by UIScene "ENTER PORT" button when player is docked at a moon. */
+  enterPort(bodyData) {
+    if (this.scene.isActive('DialogueScene')) this.scene.stop('DialogueScene');
+    this.scene.sleep('UIScene');
+    this.scene.sleep('SolarSystemScene');
+    this.scene.launch('PortScene', { moonId: bodyData.id, moonName: bodyData.name });
+  }
+
+  /** Called by PortScene when the player exits back to space. */
+  onPortExit() {
+    this.scene.wake('SolarSystemScene');
+    this.scene.wake('UIScene');
+  }
+
   _ui() {
     return this.scene.get('UIScene');
   }
