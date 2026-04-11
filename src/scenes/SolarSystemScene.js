@@ -218,11 +218,6 @@ export default class SolarSystemScene extends Phaser.Scene {
         );
       }
 
-      // ---- Dialogue on entry (any mode) ----
-      if (!this._inGravityZone.has(body.data.id) && !this.scene.isActive('DialogueScene')) {
-        this.scene.launch('DialogueScene', { bodyData: body.data });
-        this.scene.bringToTop('DialogueScene');
-      }
     }
 
     this._inGravityZone = nowInZone;
@@ -455,15 +450,6 @@ export default class SolarSystemScene extends Phaser.Scene {
     this._ui().hideCard();
     this.cameraSystem.focusOn(this.ship.x, this.ship.y, 0.45, 600);
     this._followDelay = 700;
-  }
-
-  _onDocked(bodyObj) {
-    this._ui().setLocation(bodyObj.data.name);
-    this._ui().setStatus('');
-    this.soundSystem.playDock();
-    this.scene.launch('DialogueScene', { bodyData: bodyObj.data });
-    this.scene.bringToTop('DialogueScene');
-    this.cameraSystem.focusOn(bodyObj.worldX, bodyObj.worldY, 1.2, 900);
   }
 
   // ------------------------------------------------------------------ Encounters
