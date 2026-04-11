@@ -41,6 +41,13 @@ export class NavigationSystem {
     this.target = null;
   }
 
+  /** Zero velocity and cancel auto-nav (used on respawn / battle return). */
+  resetVelocity() {
+    this.vx     = 0;
+    this.vy     = 0;
+    this.target = null;
+  }
+
   /** Called by SolarSystemScene each frame when directional input is detected.
    *  nx, ny: normalised direction vector (already unit-length).
    *  Switches off auto-nav so the player is fully in control. */

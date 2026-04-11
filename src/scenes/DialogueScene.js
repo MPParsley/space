@@ -10,7 +10,8 @@ export default class DialogueScene extends Phaser.Scene {
   }
 
   init(data) {
-    this.bodyData = data.bodyData;
+    this.bodyData         = data.bodyData || {};
+    this._dialogueOverride = data.dialogue || null;
   }
 
   create() {
@@ -34,8 +35,8 @@ export default class DialogueScene extends Phaser.Scene {
     bg.lineStyle(2, 0x1E3E7E, 1);
     bg.strokeRoundedRect(boxX, boxY, boxW, boxH, 20);
 
-    // Look up dialogue or build a default
-    const raw = DIALOGUES[this.bodyData.id];
+    // Use override (encounter NPC), registered dialogue, or auto-generated default
+    const raw = this._dialogueOverride || DIALOGUES[this.bodyData.id];
     const dialogue = raw || this._makeDefault(this.bodyData);
 
     // NPC name header

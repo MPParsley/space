@@ -7,6 +7,8 @@ import MenuScene from './scenes/MenuScene.js';
 import SolarSystemScene from './scenes/SolarSystemScene.js';
 import UIScene from './scenes/UIScene.js';
 import DialogueScene from './scenes/DialogueScene.js';
+import EncounterScene from './scenes/EncounterScene.js';
+import BattleScene from './scenes/BattleScene.js';
 
 const config = {
   type: Phaser.AUTO,           // WebGL when available, Canvas fallback
@@ -23,7 +25,7 @@ const config = {
   },
 
   // No physics engine needed — ship movement uses manual steering
-  scene: [BootScene, MenuScene, SolarSystemScene, UIScene, DialogueScene],
+  scene: [BootScene, MenuScene, SolarSystemScene, UIScene, DialogueScene, EncounterScene, BattleScene],
 };
 
 window.addEventListener('load', () => {
