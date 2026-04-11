@@ -85,6 +85,8 @@ export default class SolarSystemScene extends Phaser.Scene {
     this._followDelay = 0;
     this._isThrusting = false;
     this._fireTimer   = 0;
+    this._lookAheadX  = 0;   // smoothed look-ahead offset (world units)
+    this._lookAheadY  = 0;
 
     // ---- Launch the UI overlay scene ----
     this.scene.launch('UIScene');
@@ -339,7 +341,6 @@ export default class SolarSystemScene extends Phaser.Scene {
 
   _softFollowShip(delta) {
     const shouldFollow = this._isThrusting || !!this.navSystem.target;
-    if (!shouldFollow) return;
     if (this.cameraSystem.isPanning()) return;
 
     if (this._followDelay > 0) {
@@ -347,10 +348,36 @@ export default class SolarSystemScene extends Phaser.Scene {
       return;
     }
 
-    const cam = this.cameras.main;
-    const targetScrollX = this.ship.x - cam.width  * 0.5 / cam.zoom;
-    const targetScrollY = this.ship.y - cam.height * 0.5 / cam.zoom;
-    const factor = Math.min(0.06, 0.06 * (delta / 16.67));
+    const cam    = this.cameras.main;
+    const dt     = delta / 16.67;   // normalise to 60 fps
+
+    // ── Look-ahead offset ────────────────────────────────────────────────
+    // Target: 28% of the smaller viewport dimension in the direction of travel.
+    // Lerp is deliberately slow (~1.5 s to settle) so direction changes pan
+    // the view smoothly rather than snapping.
+    const vx    = this.navSystem.vx;
+    const vy    = this.navSystem.vy;
+    const speed = Math.hypot(vx, vy);
+    const viewMin  = Math.min(cam.width, cam.height) / cam.zoom;
+    const maxLead  = viewMin * 0.28;
+
+    let desiredLAX = 0;
+    let desiredLAY = 0;
+    if (shouldFollow && speed > 2) {
+      desiredLAX = (vx / speed) * maxLead;
+      desiredLAY = (vy / speed) * maxLead;
+    }
+
+    const laFactor = Math.min(0.022, 0.022 * dt);
+    this._lookAheadX += (desiredLAX - this._lookAheadX) * laFactor;
+    this._lookAheadY += (desiredLAY - this._lookAheadY) * laFactor;
+
+    if (!shouldFollow) return;
+
+    // ── Camera follow ────────────────────────────────────────────────────
+    const targetScrollX = (this.ship.x + this._lookAheadX) - cam.width  * 0.5 / cam.zoom;
+    const targetScrollY = (this.ship.y + this._lookAheadY) - cam.height * 0.5 / cam.zoom;
+    const factor = Math.min(0.07, 0.07 * dt);
     cam.scrollX += (targetScrollX - cam.scrollX) * factor;
     cam.scrollY += (targetScrollY - cam.scrollY) * factor;
   }
