@@ -77,7 +77,7 @@ export default class UIScene extends Phaser.Scene {
 
   _buildCard(width, height) {
     const cardW = Math.min(width - 20, 370);
-    const cardH = 230;
+    const cardH = 260;
     this._cardW = cardW;
     this._cardH = cardH;
     this._cardVisible = false;
@@ -165,6 +165,29 @@ export default class UIScene extends Phaser.Scene {
       }
     });
     this.card.add(this._talkBtn);
+
+    // "Enter Port" button (only shown for moons with hasPort)
+    this._portBtn = this.add.text(0, cardH * 0.5 - 54,
+      '  ENTER PORT  ', {
+        fontSize: '15px',
+        fontFamily: "'Arial', sans-serif",
+        fontStyle: 'bold',
+        color: '#FFFFFF',
+        backgroundColor: '#1A4400',
+        padding: { x: 14, y: 9 },
+      },
+    ).setOrigin(0.5, 1).setInteractive({ useHandCursor: true }).setVisible(false);
+
+    this._portBtn.on('pointerover', () => this._portBtn.setStyle({ backgroundColor: '#2A6600' }));
+    this._portBtn.on('pointerout', () => this._portBtn.setStyle({ backgroundColor: '#1A4400' }));
+    this._portBtn.on('pointerdown', () => {
+      if (this._selectedBodyData && this._selectedBodyData.hasPort) {
+        const ss = this.scene.get('SolarSystemScene');
+        if (ss && ss.enterPort) ss.enterPort(this._selectedBodyData);
+        this.hideCard();
+      }
+    });
+    this.card.add(this._portBtn);
 
     // Close button
     const closeBtn = this.add.text(
@@ -376,6 +399,7 @@ export default class UIScene extends Phaser.Scene {
     this._cardFact.setText(facts[0] || '');
 
     this._travelBtn.setVisible(!!navigable);
+    this._portBtn.setVisible(!!(bodyData.hasPort));
 
     // Cycle through facts every 3.2 s
     if (this._factTimer) this._factTimer.remove();

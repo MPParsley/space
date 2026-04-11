@@ -68,6 +68,7 @@ export const PLANETS = [
         color: 0xCCCCCC,
         orbitRadius: 36,
         orbitalPeriod: 27,
+        hasPort: true,
         facts: [
           'The Moon is Earth\'s only natural satellite.',
           'Astronauts walked on the Moon for the first time in 1969!',
@@ -157,6 +158,7 @@ export const PLANETS = [
         color: 0xE8F0FF,
         orbitRadius: 84,
         orbitalPeriod: 3.55,
+        hasPort: true,
         facts: [
           'Europa has a giant ocean of liquid water under its icy surface.',
           'Scientists think Europa might be a good place to look for life!',
@@ -170,6 +172,7 @@ export const PLANETS = [
         color: 0x8C8C8A,
         orbitRadius: 108,
         orbitalPeriod: 7.15,
+        hasPort: true,
         facts: [
           'Ganymede is the largest moon in the solar system — bigger than Mercury!',
           'Ganymede has its own magnetic field, like a tiny planet.',
@@ -183,6 +186,7 @@ export const PLANETS = [
         color: 0x706860,
         orbitRadius: 136,
         orbitalPeriod: 16.69,
+        hasPort: true,
         facts: [
           'Callisto has more craters than almost anywhere else in the solar system.',
           'Callisto is made of ice and rock.',
@@ -217,6 +221,7 @@ export const PLANETS = [
         color: 0xFFA040,
         orbitRadius: 112,
         orbitalPeriod: 15.95,
+        hasPort: true,
         facts: [
           'Titan has a thick orange atmosphere — just like a planet!',
           'Titan has rivers and lakes, but they are made of liquid methane, not water.',
@@ -306,6 +311,7 @@ export const PLANETS = [
         color: 0xB0C4DE,
         orbitRadius: 52,
         orbitalPeriod: 5.88,
+        hasPort: true,
         facts: [
           'Triton orbits Neptune backwards — opposite to Neptune\'s spin!',
           'Triton has geysers that shoot nitrogen gas into space.',

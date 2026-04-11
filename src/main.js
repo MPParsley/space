@@ -9,6 +9,8 @@ import UIScene from './scenes/UIScene.js';
 import DialogueScene from './scenes/DialogueScene.js';
 import EncounterScene from './scenes/EncounterScene.js';
 import BattleScene from './scenes/BattleScene.js';
+import PortScene from './scenes/PortScene.js';
+import BrawlScene from './scenes/BrawlScene.js';
 
 const config = {
   type: Phaser.AUTO,           // WebGL when available, Canvas fallback
@@ -25,7 +27,7 @@ const config = {
   },
 
   // No physics engine needed — ship movement uses manual steering
-  scene: [BootScene, MenuScene, SolarSystemScene, UIScene, DialogueScene, EncounterScene, BattleScene],
+  scene: [BootScene, MenuScene, SolarSystemScene, UIScene, DialogueScene, EncounterScene, BattleScene, PortScene, BrawlScene],
 };
 
 window.addEventListener('load', () => {
