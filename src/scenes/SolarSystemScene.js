@@ -63,7 +63,6 @@ export default class SolarSystemScene extends Phaser.Scene {
     this._activeEncounterShip = null;
 
     this.navSystem = new NavigationSystem(this, this.ship);
-    this.navSystem.onDocked = bodyObj => this._onDocked(bodyObj);
 
     this.cameraSystem = new CameraSystem(this);
     this.cameraSystem.onTap = (sx, sy) => this._handleTap(sx, sy);

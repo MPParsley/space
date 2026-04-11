@@ -104,11 +104,9 @@ export class NavigationSystem {
     const dist = Math.hypot(dx, dy);
 
     if (dist < DOCK_DISTANCE) {
-      const docked = this.target;
       this.clearTarget();
       this.vx = 0;
       this.vy = 0;
-      if (this.onDocked) this.onDocked(docked);
       return;
     }
 
