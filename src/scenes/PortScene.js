@@ -302,8 +302,8 @@ export default class PortScene extends Phaser.Scene {
       fontSize: '13px', fontFamily: 'Arial', color: color || '#88BBFF',
       fixedWidth: w - 20,
     }).setOrigin(0, 0.5);
-    bg.on('pointerover', () => bg.setFillColor(0x112244));
-    bg.on('pointerout',  () => bg.setFillColor(0x091624));
+    bg.on('pointerover', () => bg.setFillStyle(0x112244));
+    bg.on('pointerout',  () => bg.setFillStyle(0x091624));
     bg.on('pointerdown', callback);
     con.add(bg); con.add(txt);
     return h + 6;
@@ -485,7 +485,7 @@ export default class PortScene extends Phaser.Scene {
     }
 
     const refreshTabs = () => {
-      for (const t of tabBgs) t.tbg.setFillColor(t.id === activeTab ? 0x1E3E7E : 0x091624);
+      for (const t of tabBgs) t.tbg.setFillStyle(t.id === activeTab ? 0x1E3E7E : 0x091624);
     };
 
     const credTxt = this.add.text(px + 16, contentY + 34,

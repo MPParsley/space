@@ -135,8 +135,8 @@ export default class BrawlScene extends Phaser.Scene {
       const lbl = this.add.text(bd.x + btnW * 0.5, btnY + btnH * 0.5, bd.label, {
         fontSize: '14px', fontFamily: 'Arial', fontStyle: 'bold', color: bd.col,
       }).setOrigin(0.5).setDepth(11);
-      bg.on('pointerover', () => bg.setFillColor(0x112244));
-      bg.on('pointerout',  () => bg.setFillColor(0x091624));
+      bg.on('pointerover', () => bg.setFillStyle(0x112244));
+      bg.on('pointerout',  () => bg.setFillStyle(0x091624));
       bg.on('pointerdown', () => this._onAction(bd.id));
       this._btns[bd.id] = { bg, lbl };
     }
@@ -199,12 +199,12 @@ export default class BrawlScene extends Phaser.Scene {
     const barW = this._phpBg.width;
 
     this._phpBar.setSize(barW * pPct, this._phpBar.height);
-    this._phpBar.setFillColor(pPct > 0.5 ? 0x44FF44 : pPct > 0.25 ? 0xFFCC00 : 0xFF4444);
+    this._phpBar.setFillStyle(pPct > 0.5 ? 0x44FF44 : pPct > 0.25 ? 0xFFCC00 : 0xFF4444);
     this._phpTxt.setText(`HP ${inv.miloHp}/${inv.miloMaxHp}`);
 
     const eBarW = this._ehpBg.width;
     this._ehpBar.setSize(eBarW * ePct, this._ehpBar.height);
-    this._ehpBar.setFillColor(ePct > 0.5 ? 0xFF4444 : ePct > 0.25 ? 0xFFAA00 : 0xFF8800);
+    this._ehpBar.setFillStyle(ePct > 0.5 ? 0xFF4444 : ePct > 0.25 ? 0xFFAA00 : 0xFF8800);
     this._ehpTxt.setText(`HP ${this._enemyHp}/${this._enemy.hp}`);
   }
 
@@ -290,8 +290,8 @@ export default class BrawlScene extends Phaser.Scene {
         fontSize: '12px', fontFamily: 'Arial', color: isEq ? '#FFFFFF' : '#88BBFF',
       });
       const widx = i;
-      wbg.on('pointerover', () => wbg.setFillColor(0x112244));
-      wbg.on('pointerout',  () => wbg.setFillColor(isEq ? 0x1E3E7E : 0x091624));
+      wbg.on('pointerover', () => wbg.setFillStyle(0x112244));
+      wbg.on('pointerout',  () => wbg.setFillStyle(isEq ? 0x1E3E7E : 0x091624));
       wbg.on('pointerdown', () => {
         inv.equippedWeapon = inv.weapons[widx].id;
         con.destroy();
