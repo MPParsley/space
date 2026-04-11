@@ -1,6 +1,6 @@
-// PortScene — top-down port navigation.
-// Launched (not overlaid) when player docks at a moon port.
-// Milo walks through corridors and enters rooms.
+// PortScene — base schematic navigation.
+// Inspired by classic CRPG base screens: an overhead blueprint of the station
+// with labelled rooms you click to enter. No walking — just select a room.
 
 import { getPortForMoon }           from '../data/ports.js';
 import { WEAPONS, SHIP_UPGRADES, SPOILS, LIBRARY_BOOKS } from '../data/items.js';
@@ -9,24 +9,31 @@ import {
   addSpoil, sellSpoil, healMilo, trainMilo,
 } from '../systems/InventorySystem.js';
 
-const WORLD_W    = 750;
-const WORLD_H    = 460;
-const MILO_R     = 10;
-const MILO_SPEED = 140;   // px per second
-const INTERACT_R = 58;    // distance to trigger room prompt
-const BAR_BRAWL_CHANCE = 0.45;
+// Room type → icon character and accent colour
+const ROOM_STYLE = {
+  dock:    { icon: '⊕', accent: 0x2266AA, label: 'SPACE DOCK'  },
+  bar:     { icon: '⊗', accent: 0xAA4400, label: 'BAR'         },
+  shop:    { icon: '⊞', accent: 0x116622, label: 'SHOP'        },
+  gym:     { icon: '⊡', accent: 0x662288, label: 'GYM'         },
+  library: { icon: '⊟', accent: 0x224488, label: 'LIBRARY'     },
+};
 
-// Colour palette
 const C = {
-  wall:     0x0A1828,
-  floor:    0x0D1F33,
-  corridor: 0x0F2540,
-  roomEdge: 0x1E3E7E,
-  milo:     0x00AAFF,
-  text:     '#CCDDF0',
-  gold:     '#FFD700',
-  green:    '#44FF88',
-  red:      '#FF4444',
+  bg:         0x020810,
+  schematic:  0x030F1E,
+  corridor:   0x0A1E30,
+  roomBg:     0x061422,
+  roomHover:  0x0E2A46,
+  roomSel:    0x0A1E36,
+  border:     0x1E3E7E,
+  borderDim:  0x0E2040,
+  connLine:   0x0E2A46,
+  text:       '#CCDDF0',
+  textDim:    '#334455',
+  gold:       '#FFD700',
+  green:      '#44FF88',
+  red:        '#FF4444',
+  orange:     '#FF8844',
 };
 
 export default class PortScene extends Phaser.Scene {
@@ -42,283 +49,177 @@ export default class PortScene extends Phaser.Scene {
   // ------------------------------------------------------------------ create
   create() {
     const { width, height } = this.scale;
+    this.cameras.main.setBackgroundColor(C.bg);
 
-    // ── world setup ──────────────────────────────────────────────────────────
-    this._cam = this.cameras.main;
-    this._cam.setBackgroundColor(0x020810);
-    this._cam.setBounds(0, 0, WORLD_W, WORLD_H);
+    // Leave room for HUD strip (top) and status bar (bottom)
+    const HUD_H    = 42;
+    const STATUS_H = 36;
+    const mapH     = height - HUD_H - STATUS_H;
+    const mapW     = width;
 
-    // scale world to fit screen
-    const scale = Math.min(width / WORLD_W, height / WORLD_H);
-    this._worldOffX = (width  - WORLD_W * scale) * 0.5;
-    this._worldOffY = (height - WORLD_H * scale) * 0.5;
-    this._scale = scale;
+    this._mapX = 0;
+    this._mapY = HUD_H;
+    this._mapW = mapW;
+    this._mapH = mapH;
 
-    // ── draw map ─────────────────────────────────────────────────────────────
-    this._gMap = this.add.graphics();
-    this._drawMap();
-
-    // ── Milo ─────────────────────────────────────────────────────────────────
-    // Find dock room as spawn point
-    const dock = this._portData.rooms.find(r => r.type === 'dock');
-    this._mx = dock ? dock.cx + 60 : WORLD_W * 0.5;
-    this._my = dock ? dock.cy      : WORLD_H * 0.5;
-
-    this._gMilo = this.add.graphics();
-    this._drawMilo();
-
-    // ── room label prompts ────────────────────────────────────────────────────
-    this._roomLabels = [];
-    for (const room of this._portData.rooms) {
-      const lbl = this.add.text(
-        this._wx(room.cx), this._wy(room.cy - room.h * 0.5 * scale - 14),
-        room.label, {
-          fontSize: Math.round(11 * scale) + 'px',
-          fontFamily: "'Arial', sans-serif",
-          fontStyle: 'bold',
-          color: C.gold,
-          alpha: 0,
-        },
-      ).setOrigin(0.5, 1);
-      this._roomLabels.push({ room, lbl });
+    // ── background schematic grid ─────────────────────────────────────────
+    const bgG = this.add.graphics();
+    bgG.fillStyle(C.schematic, 1);
+    bgG.fillRect(0, HUD_H, mapW, mapH);
+    // subtle dot-grid
+    bgG.fillStyle(0x0C2030, 1);
+    for (let gx = 12; gx < mapW; gx += 24) {
+      for (let gy = HUD_H + 12; gy < HUD_H + mapH; gy += 24) {
+        bgG.fillRect(gx, gy, 1, 1);
+      }
     }
 
-    // ── HUD strip ─────────────────────────────────────────────────────────────
-    this._hudBg = this.add.rectangle(0, 0, width, 36, 0x000000, 0.75)
-      .setOrigin(0, 0).setScrollFactor(0).setDepth(20);
-    this._hudText = this.add.text(10, 8, '', {
-      fontSize: '13px', fontFamily: "'Arial', sans-serif",
-      color: C.text,
-    }).setScrollFactor(0).setDepth(21);
-    this._updateHud();
+    // ── compute room screen rects ─────────────────────────────────────────
+    // The port data uses a 750×460 world; scale it to fit our map area
+    const DATA_W = 750;
+    const DATA_H = 460;
+    const scaleX = mapW  / DATA_W;
+    const scaleY = mapH  / DATA_H;
+    const s      = Math.min(scaleX, scaleY);
+    const offX   = this._mapX + (mapW  - DATA_W * s) * 0.5;
+    const offY   = this._mapY + (mapH  - DATA_H * s) * 0.5;
 
-    // ── keyboard ─────────────────────────────────────────────────────────────
-    const kb = this.input.keyboard;
-    this._keys = kb.addKeys({
-      up:    Phaser.Input.Keyboard.KeyCodes.UP,
-      down:  Phaser.Input.Keyboard.KeyCodes.DOWN,
-      left:  Phaser.Input.Keyboard.KeyCodes.LEFT,
-      right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
-      w:     Phaser.Input.Keyboard.KeyCodes.W,
-      s:     Phaser.Input.Keyboard.KeyCodes.S,
-      a:     Phaser.Input.Keyboard.KeyCodes.A,
-      d:     Phaser.Input.Keyboard.KeyCodes.D,
-      enter: Phaser.Input.Keyboard.KeyCodes.ENTER,
-      e:     Phaser.Input.Keyboard.KeyCodes.E,
-    });
+    this._roomRects = this._portData.rooms.map(r => ({
+      room: r,
+      sx: offX + r.x * s,
+      sy: offY + r.y * s,
+      sw: r.w * s,
+      sh: r.h * s,
+      cx: offX + r.cx * s,
+      cy: offY + r.cy * s,
+    }));
 
-    // ── touch virtual d-pad (mobile) ─────────────────────────────────────────
-    this._dpad = { dx: 0, dy: 0 };
-    this._buildDpad(width, height, scale);
+    // ── draw corridor connectors ──────────────────────────────────────────
+    const connG = this.add.graphics();
+    connG.lineStyle(Math.max(6, 14 * s), C.corridor, 1);
+    for (const wRect of this._portData.walkable) {
+      const wx = offX + wRect.x * s;
+      const wy = offY + wRect.y * s;
+      const ww = wRect.w * s;
+      const wh = wRect.h * s;
+      connG.fillStyle(C.corridor, 1);
+      connG.fillRect(wx, wy, ww, wh);
+    }
 
-    // ── panel state ───────────────────────────────────────────────────────────
-    this._panel      = null;   // active panel container
-    this._nearRoom   = null;   // room Milo is near
-    this._panelOpen  = false;
+    // ── draw room boxes ───────────────────────────────────────────────────
+    this._roomGfx = [];
+    this._roomBtns = [];
 
-    // ── enter/interact tap ────────────────────────────────────────────────────
-    this._enterJustPressed = false;
-    this._keys.enter.on('down', () => { if (this._nearRoom) this._openRoom(this._nearRoom); });
-    this._keys.e.on(    'down', () => { if (this._nearRoom) this._openRoom(this._nearRoom); });
+    for (const rr of this._roomRects) {
+      const style = ROOM_STYLE[rr.room.type] || ROOM_STYLE.dock;
+
+      // Room background (interactive zone)
+      const bg = this.add.graphics();
+      this._drawRoomBox(bg, rr, style, false);
+
+      // Hit area
+      const hit = this.add.zone(rr.sx, rr.sy, rr.sw, rr.sh)
+        .setOrigin(0).setInteractive({ useHandCursor: true });
+
+      // Icon (large, centred)
+      const iconTxt = this.add.text(rr.cx, rr.cy - rr.sh * 0.08, style.icon, {
+        fontSize: Math.round(Math.min(rr.sw, rr.sh) * 0.38) + 'px',
+        fontFamily: 'Arial',
+        color: '#' + style.accent.toString(16).padStart(6, '0'),
+        alpha: 0.9,
+      }).setOrigin(0.5, 0.5);
+
+      // Room label
+      const labelTxt = this.add.text(rr.cx, rr.sy + rr.sh - Math.round(14 * s), style.label, {
+        fontSize: Math.round(Math.max(9, 11 * s)) + 'px',
+        fontFamily: 'Arial',
+        fontStyle: 'bold',
+        color: '#' + style.accent.toString(16).padStart(6, '0'),
+        alpha: 0.85,
+      }).setOrigin(0.5, 1);
+
+      // Room sub-name
+      const subTxt = this.add.text(rr.cx, rr.sy + Math.round(8 * s), rr.room.name, {
+        fontSize: Math.round(Math.max(8, 9 * s)) + 'px',
+        fontFamily: 'Arial',
+        color: C.textDim,
+      }).setOrigin(0.5, 0);
+
+      // Hover / click handlers
+      hit.on('pointerover', () => {
+        this._drawRoomBox(bg, rr, style, true);
+        labelTxt.setAlpha(1);
+      });
+      hit.on('pointerout', () => {
+        this._drawRoomBox(bg, rr, style, false);
+        labelTxt.setAlpha(0.85);
+      });
+      hit.on('pointerdown', () => {
+        if (!this._panelOpen) this._openRoom(rr.room);
+      });
+
+      this._roomGfx.push({ bg, rr, style, iconTxt, labelTxt, subTxt });
+      this._roomBtns.push(hit);
+    }
+
+    // ── station name banner ───────────────────────────────────────────────
+    const bannerG = this.add.graphics();
+    bannerG.fillStyle(0x030C18, 0.95);
+    bannerG.fillRect(0, 0, width, HUD_H);
+    bannerG.lineStyle(1, C.border, 0.5);
+    bannerG.lineBetween(0, HUD_H, width, HUD_H);
+
+    this.add.text(width * 0.5, HUD_H * 0.5,
+      `${this._moonName.toUpperCase()} STATION`, {
+        fontSize: '16px', fontFamily: 'Arial', fontStyle: 'bold',
+        color: C.gold,
+      }).setOrigin(0.5);
+
+    // ── status bar (bottom) ───────────────────────────────────────────────
+    const statY = height - STATUS_H;
+    const statG = this.add.graphics();
+    statG.fillStyle(0x030C18, 0.95);
+    statG.fillRect(0, statY, width, STATUS_H);
+    statG.lineStyle(1, C.border, 0.4);
+    statG.lineBetween(0, statY, width, statY);
+
+    this._statusTxt = this.add.text(12, statY + STATUS_H * 0.5,
+      '', { fontSize: '13px', fontFamily: 'Arial', color: C.text }).setOrigin(0, 0.5);
+    this._updateStatus('Select a room to enter.');
+
+    // ── panel state ───────────────────────────────────────────────────────
+    this._panel     = null;
+    this._panelOpen = false;
 
     // BrawlScene resume event
     this.events.on('resume', this._onBrawlReturn, this);
 
-    this.cameras.main.fadeIn(300, 0, 5, 20);
+    this.cameras.main.fadeIn(280, 0, 5, 20);
   }
 
-  // ------------------------------------------------------------------ update
-  update(_, delta) {
-    if (this._panelOpen) return;
+  // ------------------------------------------------------------------ helpers
 
-    const dt = delta / 1000;
-    const k  = this._keys;
-
-    let dx = this._dpad.dx;
-    let dy = this._dpad.dy;
-    if (k.left.isDown  || k.a.isDown) dx -= 1;
-    if (k.right.isDown || k.d.isDown) dx += 1;
-    if (k.up.isDown    || k.w.isDown) dy -= 1;
-    if (k.down.isDown  || k.s.isDown) dy += 1;
-
-    if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
-
-    const vx = dx * MILO_SPEED * dt;
-    const vy = dy * MILO_SPEED * dt;
-
-    this._moveWithCollision(vx, vy);
-    this._drawMilo();
-    this._updateRoomProximity();
-    this._updateHud();
-  }
-
-  // ------------------------------------------------------------------ private: movement
-
-  _moveWithCollision(vx, vy) {
-    const w = this._portData.walkable;
-
-    // Try X
-    const nx = this._mx + vx;
-    if (this._inWalkable(nx, this._my, w)) {
-      this._mx = Phaser.Math.Clamp(nx, MILO_R, WORLD_W - MILO_R);
-    }
-    // Try Y
-    const ny = this._my + vy;
-    if (this._inWalkable(this._mx, ny, w)) {
-      this._my = Phaser.Math.Clamp(ny, MILO_R, WORLD_H - MILO_R);
-    }
-  }
-
-  _inWalkable(x, y, walkable) {
-    const r = MILO_R;
-    for (const rect of walkable) {
-      if (x - r >= rect.x && x + r <= rect.x + rect.w &&
-          y - r >= rect.y && y + r <= rect.y + rect.h) return true;
-    }
-    return false;
-  }
-
-  // ------------------------------------------------------------------ private: map drawing
-
-  _drawMap() {
-    const g   = this._gMap;
-    const s   = this._scale;
-    const ox  = this._worldOffX;
-    const oy  = this._worldOffY;
-
+  _drawRoomBox(g, rr, style, hovered) {
     g.clear();
-
-    // Background fill
-    g.fillStyle(C.wall, 1);
-    g.fillRect(ox, oy, WORLD_W * s, WORLD_H * s);
-
-    // Walkable corridors
-    g.fillStyle(C.corridor, 1);
-    for (const rect of this._portData.walkable) {
-      g.fillRect(ox + rect.x * s, oy + rect.y * s, rect.w * s, rect.h * s);
-    }
-
-    // Rooms
-    for (const room of this._portData.rooms) {
-      g.fillStyle(room.color, 1);
-      g.fillRect(ox + room.x * s, oy + room.y * s, room.w * s, room.h * s);
-      g.lineStyle(1.5, C.roomEdge, 0.9);
-      g.strokeRect(ox + room.x * s, oy + room.y * s, room.w * s, room.h * s);
-    }
-
-    // World border
-    g.lineStyle(2, C.roomEdge, 0.6);
-    g.strokeRect(ox, oy, WORLD_W * s, WORLD_H * s);
-
-    // Room name labels inside rooms
-    for (const room of this._portData.rooms) {
-      this.add.text(
-        ox + (room.x + 4) * s,
-        oy + (room.y + 4) * s,
-        room.name, {
-          fontSize: Math.round(9 * s) + 'px',
-          fontFamily: "'Arial', sans-serif",
-          color: '#446688',
-        },
-      );
-    }
+    g.fillStyle(hovered ? C.roomHover : C.roomBg, 1);
+    g.fillRect(rr.sx, rr.sy, rr.sw, rr.sh);
+    g.lineStyle(hovered ? 2 : 1.5, hovered ? style.accent : C.borderDim, 1);
+    g.strokeRect(rr.sx, rr.sy, rr.sw, rr.sh);
+    // corner ticks
+    const t = Math.min(8, rr.sw * 0.12);
+    g.lineStyle(hovered ? 2 : 1, style.accent, hovered ? 0.9 : 0.35);
+    const x1 = rr.sx, y1 = rr.sy, x2 = rr.sx + rr.sw, y2 = rr.sy + rr.sh;
+    g.lineBetween(x1, y1, x1 + t, y1); g.lineBetween(x1, y1, x1, y1 + t);
+    g.lineBetween(x2, y1, x2 - t, y1); g.lineBetween(x2, y1, x2, y1 + t);
+    g.lineBetween(x1, y2, x1 + t, y2); g.lineBetween(x1, y2, x1, y2 - t);
+    g.lineBetween(x2, y2, x2 - t, y2); g.lineBetween(x2, y2, x2, y2 - t);
   }
 
-  // ------------------------------------------------------------------ private: Milo
-
-  _drawMilo() {
-    const g  = this._gMilo;
-    const ox = this._worldOffX;
-    const oy = this._worldOffY;
-    const s  = this._scale;
-    const cx = ox + this._mx * s;
-    const cy = oy + this._my * s;
-    const r  = MILO_R * s;
-
-    g.clear();
-    // Body (torso rect)
-    g.fillStyle(C.milo, 1);
-    g.fillCircle(cx, cy, r);
-    // Direction dot (just for visual polish)
-    g.fillStyle(0xFFFFFF, 0.6);
-    g.fillCircle(cx, cy - r * 0.35, r * 0.28);
-  }
-
-  // world coords → screen coords helpers
-  _wx(x) { return this._worldOffX + x * this._scale; }
-  _wy(y) { return this._worldOffY + y * this._scale; }
-
-  // ------------------------------------------------------------------ private: room proximity
-
-  _updateRoomProximity() {
-    let nearest = null;
-    let bestDist = INTERACT_R;
-
-    for (const room of this._portData.rooms) {
-      const d = Phaser.Math.Distance.Between(this._mx, this._my, room.cx, room.cy);
-      if (d < bestDist) { bestDist = d; nearest = room; }
-    }
-
-    if (nearest !== this._nearRoom) {
-      // Hide old prompt
-      for (const { room, lbl } of this._roomLabels) lbl.setAlpha(0);
-      this._nearRoom = nearest;
-      if (nearest) {
-        const entry = this._roomLabels.find(e => e.room === nearest);
-        if (entry) entry.lbl.setAlpha(1);
-      }
-    }
-  }
-
-  // ------------------------------------------------------------------ private: HUD
-
-  _updateHud() {
+  _updateStatus(msg) {
     const inv = getInventory();
-    const room = this._nearRoom;
-    const hint = room ? `  |  [E] Enter ${room.name}` : '';
-    this._hudText.setText(
-      `HP ${inv.miloHp}/${inv.miloMaxHp}   Credits ${inv.credits}   Port: ${this._moonName}${hint}`,
+    this._statusTxt.setText(
+      `HP ${inv.miloHp}/${inv.miloMaxHp}   Credits ${inv.credits}   |   ${msg}`,
     );
-  }
-
-  // ------------------------------------------------------------------ private: d-pad
-
-  _buildDpad(width, height, scale) {
-    const size  = Math.round(40 * scale);
-    const gap   = 6;
-    const bx    = 60 * scale;
-    const by    = height - 60 * scale;
-    const alpha = 0.55;
-
-    const dirs = [
-      { label: '▲', ax:  0, ay: -1, ox: 0,        oy: -(size + gap) },
-      { label: '▼', ax:  0, ay:  1, ox: 0,        oy:  (size + gap) },
-      { label: '◀', ax: -1, ay:  0, ox: -(size + gap), oy: 0 },
-      { label: '▶', ax:  1, ay:  0, ox:  (size + gap), oy: 0 },
-    ];
-
-    for (const d of dirs) {
-      const bg = this.add.rectangle(bx + d.ox, by + d.oy, size, size, 0x112244, alpha)
-        .setScrollFactor(0).setDepth(25).setInteractive();
-      this.add.text(bx + d.ox, by + d.oy, d.label, {
-        fontSize: Math.round(18 * scale) + 'px',
-        fontFamily: 'Arial',
-        color: '#88BBFF',
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(26);
-
-      bg.on('pointerdown', () => { this._dpad.dx = d.ax; this._dpad.dy = d.ay; });
-      bg.on('pointerup',   () => { this._dpad.dx = 0;    this._dpad.dy = 0; });
-      bg.on('pointerout',  () => { this._dpad.dx = 0;    this._dpad.dy = 0; });
-    }
-
-    // Room enter button (centre of d-pad)
-    const enterBtn = this.add.rectangle(bx, by, size, size, 0x224411, alpha)
-      .setScrollFactor(0).setDepth(25).setInteractive();
-    this.add.text(bx, by, '↵', {
-      fontSize: Math.round(16 * scale) + 'px',
-      fontFamily: 'Arial', color: '#AAFFAA',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(26);
-    enterBtn.on('pointerdown', () => { if (this._nearRoom) this._openRoom(this._nearRoom); });
   }
 
   // ------------------------------------------------------------------ room panels
@@ -326,60 +227,61 @@ export default class PortScene extends Phaser.Scene {
   _openRoom(room) {
     if (this._panelOpen) return;
     this._panelOpen = true;
+    this._updateStatus(`Entering: ${room.name}`);
 
     switch (room.type) {
-      case 'dock':    this._openDock();         break;
-      case 'bar':     this._openBar();          break;
-      case 'shop':    this._openShop();         break;
-      case 'gym':     this._openGym();          break;
-      case 'library': this._openLibrary();      break;
+      case 'dock':    this._openDock();    break;
+      case 'bar':     this._openBar();     break;
+      case 'shop':    this._openShop();    break;
+      case 'gym':     this._openGym();     break;
+      case 'library': this._openLibrary(); break;
     }
   }
 
   _closePanel() {
     if (this._panel) { this._panel.destroy(); this._panel = null; }
     this._panelOpen = false;
-    this._updateHud();
+    this._updateStatus('Select a room to enter.');
   }
 
-  // ─── panel builder helper ─────────────────────────────────────────────────
+  // ─── panel builder ────────────────────────────────────────────────────────
 
   _makePanel(titleText, titleColor) {
     const { width, height } = this.scale;
-    const s   = this._scale;
-    const pw  = Math.min(width  - 24, 420);
-    const ph  = Math.min(height - 80, 340);
-    const px  = (width  - pw) * 0.5;
-    const py  = (height - ph) * 0.5;
+    const pw = Math.min(width  - 24, 430);
+    const ph = Math.min(height - 80, 360);
+    const px = (width  - pw) * 0.5;
+    const py = (height - ph) * 0.5;
 
     const con = this.add.container(0, 0).setDepth(50);
     this._panel = con;
 
     // Backdrop
-    const mask = this.add.rectangle(0, 0, width, height, 0x000000, 0.55)
+    const mask = this.add.rectangle(0, 0, width, height, 0x000000, 0.6)
       .setOrigin(0).setInteractive();
     con.add(mask);
 
-    // Box
+    // Panel box
     const bg = this.add.graphics();
-    bg.fillStyle(0x050D1A, 0.97);
-    bg.fillRoundedRect(px, py, pw, ph, 16);
+    bg.fillStyle(0x050D1A, 0.98);
+    bg.fillRoundedRect(px, py, pw, ph, 14);
     bg.lineStyle(2, 0x1E3E7E, 1);
-    bg.strokeRoundedRect(px, py, pw, ph, 16);
+    bg.strokeRoundedRect(px, py, pw, ph, 14);
+    // Accent bar at top
+    bg.fillStyle(0x0A1E36, 1);
+    bg.fillRoundedRect(px, py, pw, 46, { tl: 14, tr: 14, bl: 0, br: 0 });
     con.add(bg);
 
     // Title
-    const title = this.add.text(px + 16, py + 14, titleText, {
-      fontSize: Math.round(16 * s) + 'px',
-      fontFamily: "'Arial', sans-serif", fontStyle: 'bold',
+    con.add(this.add.text(px + 16, py + 14, titleText, {
+      fontSize: '17px', fontFamily: 'Arial', fontStyle: 'bold',
       color: titleColor || C.gold,
-    });
-    con.add(title);
+    }));
 
     // Sep line
     const sep = this.add.graphics();
-    sep.lineStyle(1, 0x1E3E7E, 0.7);
-    sep.lineBetween(px + 12, py + 44, px + pw - 12, py + 44);
+    sep.lineStyle(1, 0x1E3E7E, 0.6);
+    sep.lineBetween(px + 12, py + 46, px + pw - 12, py + 46);
     con.add(sep);
 
     // Close button
@@ -389,18 +291,16 @@ export default class PortScene extends Phaser.Scene {
     closeBtn.on('pointerdown', () => this._closePanel());
     con.add(closeBtn);
 
-    return { con, px, py, pw, ph, s, contentY: py + 52 };
+    return { con, px, py, pw, ph, contentY: py + 54 };
   }
 
   _addBtn(con, x, y, w, label, color, callback) {
-    const s   = this._scale;
-    const h   = Math.round(30 * s);
-    const bg  = this.add.rectangle(x + w * 0.5, y + h * 0.5, w, h, 0x091624, 1)
+    const h  = 32;
+    const bg = this.add.rectangle(x + w * 0.5, y + h * 0.5, w, h, 0x091624, 1)
       .setInteractive({ useHandCursor: true });
-    const txt = this.add.text(x + 8, y + h * 0.5, label, {
-      fontSize: Math.round(12 * s) + 'px',
-      fontFamily: 'Arial', color: color || '#88BBFF',
-      fixedWidth: w - 16,
+    const txt = this.add.text(x + 10, y + h * 0.5, label, {
+      fontSize: '13px', fontFamily: 'Arial', color: color || '#88BBFF',
+      fixedWidth: w - 20,
     }).setOrigin(0, 0.5);
     bg.on('pointerover', () => bg.setFillColor(0x112244));
     bg.on('pointerout',  () => bg.setFillColor(0x091624));
@@ -412,324 +312,280 @@ export default class PortScene extends Phaser.Scene {
   // ─── DOCK ────────────────────────────────────────────────────────────────
 
   _openDock() {
-    const { con, px, py, pw, ph, s, contentY } = this._makePanel('Space Dock', '#88BBFF');
+    const { con, px, py, pw, contentY } = this._makePanel('⊕  Space Dock', '#88BBFF');
     const inv = getInventory();
 
-    con.add(this.add.text(px + 16, contentY, 'Your ship is docked and ready for departure.', {
-      fontSize: Math.round(13 * s) + 'px', fontFamily: 'Arial', color: C.text,
-      wordWrap: { width: pw - 32 },
-    }));
-    con.add(this.add.text(px + 16, contentY + Math.round(36 * s),
+    con.add(this.add.text(px + 16, contentY,
+      'Your ship is docked and fuelled for departure.', {
+        fontSize: '14px', fontFamily: 'Arial', color: C.text,
+        wordWrap: { width: pw - 32 },
+      }));
+    con.add(this.add.text(px + 16, contentY + 30,
       `Credits: ${inv.credits}   HP: ${inv.miloHp}/${inv.miloMaxHp}`, {
-        fontSize: Math.round(12 * s) + 'px', fontFamily: 'Arial', color: C.gold,
+        fontSize: '13px', fontFamily: 'Arial', color: C.gold,
       }));
 
-    this._addBtn(con,
-      px + 16, contentY + Math.round(75 * s), pw - 32,
-      '▸  Leave Port (return to space)', '#FF8844',
-      () => this._exitPort(),
-    );
+    this._addBtn(con, px + 16, contentY + 68, pw - 32,
+      '▸  Undock — return to space', C.orange, () => this._exitPort());
+    this._addBtn(con, px + 16, contentY + 108, pw - 32,
+      '▸  Stay in port', '#446688', () => this._closePanel());
   }
 
   // ─── BAR ─────────────────────────────────────────────────────────────────
 
   _openBar() {
-    const { con, px, py, pw, ph, s, contentY } = this._makePanel('The Bar', '#FF8844');
+    const { con, px, py, pw, contentY } = this._makePanel('⊗  The Bar', C.orange);
 
     const lines = [
-      '"Hey there, spacer. What\'ll it be?"',
-      '"Word is there\'s a plasma rifle on Triton."',
+      '"Hey spacer — what\'ll it be?"',
+      '"Word is there\'s a plasma rifle floating around Triton."',
       '"Lost three ships to pirates near Saturn last cycle."',
-      '"You look like trouble. Just like I like it."',
+      '"You look like trouble. Just the way I like it."',
+      '"Sit down before someone takes offence to your face."',
     ];
     const quote = lines[Math.floor(Math.random() * lines.length)];
 
     con.add(this.add.text(px + 16, contentY, quote, {
-      fontSize: Math.round(13 * s) + 'px', fontFamily: 'Arial',
-      fontStyle: 'italic', color: '#FFCC88',
-      wordWrap: { width: pw - 32 },
+      fontSize: '14px', fontFamily: 'Arial', fontStyle: 'italic',
+      color: '#FFCC88', wordWrap: { width: pw - 32 },
     }));
 
-    const brawlLabel = '▸  Start a brawl  (turn-based combat)';
-    const talkLabel  = '▸  Just drink quietly';
-
-    let y = contentY + Math.round(70 * s);
-    this._addBtn(con, px + 16, y, pw - 32, brawlLabel, C.red, () => {
-      this._closePanel();
-      this._startBrawl();
-    });
-    y += Math.round(38 * s);
-    this._addBtn(con, px + 16, y, pw - 32, talkLabel, '#88BBFF', () => this._closePanel());
+    let y = contentY + 62;
+    this._addBtn(con, px + 16, y, pw - 32,
+      '▸  Start a brawl  (turn-based combat)', C.red, () => {
+        this._closePanel(); this._startBrawl();
+      });
+    y += 38;
+    this._addBtn(con, px + 16, y, pw - 32,
+      '▸  Drink quietly and leave', '#88BBFF', () => this._closePanel());
   }
 
   // ─── GYM ─────────────────────────────────────────────────────────────────
 
   _openGym() {
-    const { con, px, py, pw, ph, s, contentY } = this._makePanel('Training Bay', '#AA44FF');
+    const { con, px, py, pw, contentY } = this._makePanel('⊡  Training Bay', '#AA44FF');
     const inv = getInventory();
 
-    const refreshText = () => {
-      statusTxt.setText(`HP: ${inv.miloHp} / ${inv.miloMaxHp}  (max ${inv.miloMaxHp})`);
-    };
-
     con.add(this.add.text(px + 16, contentY,
-      'Hard training sessions improve your maximum health.', {
-        fontSize: Math.round(13 * s) + 'px', fontFamily: 'Arial', color: C.text,
+      'Hard training builds endurance and maximum health.', {
+        fontSize: '14px', fontFamily: 'Arial', color: C.text,
         wordWrap: { width: pw - 32 },
       }));
 
-    const statusTxt = this.add.text(px + 16, contentY + Math.round(40 * s), '', {
-      fontSize: Math.round(13 * s) + 'px', fontFamily: 'Arial', color: C.green,
-    });
+    const statusTxt = this.add.text(px + 16, contentY + 34,
+      `HP: ${inv.miloHp} / ${inv.miloMaxHp}`, {
+        fontSize: '14px', fontFamily: 'Arial', color: C.green,
+      });
     con.add(statusTxt);
-    refreshText();
 
-    let y = contentY + Math.round(80 * s);
+    const refresh = () => statusTxt.setText(`HP: ${inv.miloHp} / ${inv.miloMaxHp}`);
+
+    let y = contentY + 72;
     this._addBtn(con, px + 16, y, pw - 32,
-      '▸  Train hard  (+10 max HP, costs 25 credits)', C.green, () => {
-        if (inv.credits < 25) {
-          statusTxt.setText('Not enough credits!').setColor(C.red);
-          return;
-        }
-        inv.credits -= 25;
-        trainMilo();
-        refreshText();
-        statusTxt.setText(`Trained! HP: ${inv.miloHp} / ${inv.miloMaxHp}`).setColor(C.green);
+      '▸  Train hard  (+10 max HP)  — 25 credits', C.green, () => {
+        if (inv.credits < 25) { statusTxt.setText('Not enough credits!').setColor(C.red); return; }
+        inv.credits -= 25; trainMilo(); refresh();
+        this._updateStatus(`Trained! HP ${inv.miloHp}/${inv.miloMaxHp}`);
       });
-    y += Math.round(38 * s);
+    y += 38;
     this._addBtn(con, px + 16, y, pw - 32,
-      '▸  Rest & heal  (+20 HP, costs 15 credits)', '#88BBFF', () => {
-        if (inv.credits < 15) {
-          statusTxt.setText('Not enough credits!').setColor(C.red); return;
-        }
-        inv.credits -= 15;
-        healMilo(20);
-        refreshText();
+      '▸  Rest and heal  (+20 HP)  — 15 credits', '#88BBFF', () => {
+        if (inv.credits < 15) { statusTxt.setText('Not enough credits!').setColor(C.red); return; }
+        inv.credits -= 15; healMilo(20); refresh();
+        this._updateStatus(`Healed. HP ${inv.miloHp}/${inv.miloMaxHp}`);
       });
-    y += Math.round(38 * s);
+    y += 38;
     this._addBtn(con, px + 16, y, pw - 32, '▸  Leave', '#446688', () => this._closePanel());
   }
 
   // ─── LIBRARY ─────────────────────────────────────────────────────────────
 
   _openLibrary() {
-    const { con, px, py, pw, ph, s, contentY } = this._makePanel('Archive', '#4488FF');
+    const { con, px, py, pw, contentY } = this._makePanel('⊟  Archive', '#4488FF');
     const inv = getInventory();
     const unread = LIBRARY_BOOKS.filter(b => !inv.booksRead.includes(b.id));
-    const read   = LIBRARY_BOOKS.filter(b =>  inv.booksRead.includes(b.id));
 
-    let y = contentY;
-    if (unread.length === 0) {
-      con.add(this.add.text(px + 16, y, 'You have read all books here.', {
-        fontSize: Math.round(13 * s) + 'px', fontFamily: 'Arial', color: '#446688',
-      }));
-    }
-
-    // Show one unread at a time
     let bookIdx = 0;
-    const showBook = () => {
-      if (unread.length === 0) return;
-      const book = unread[bookIdx % unread.length];
-      titleTxt.setText(book.title);
-      bodyTxt.setText(book.text);
-      if (book.revealWeapon) {
-        const wDef = WEAPONS.find(w => w.id === book.revealWeapon);
-        hintTxt.setText(wDef ? `Hint: "${wDef.name}" discovered!` : '');
-      } else {
-        hintTxt.setText('');
-      }
-    };
 
-    const titleTxt = this.add.text(px + 16, y, '', {
-      fontSize: Math.round(14 * s) + 'px', fontFamily: 'Arial',
-      fontStyle: 'bold', color: C.gold, wordWrap: { width: pw - 32 },
+    const titleTxt = this.add.text(px + 16, contentY, '', {
+      fontSize: '15px', fontFamily: 'Arial', fontStyle: 'bold',
+      color: C.gold, wordWrap: { width: pw - 32 },
     });
     con.add(titleTxt);
-    y += Math.round(30 * s);
 
-    const bodyTxt = this.add.text(px + 16, y, '', {
-      fontSize: Math.round(12 * s) + 'px', fontFamily: 'Arial',
+    const bodyTxt = this.add.text(px + 16, contentY + 28, '', {
+      fontSize: '13px', fontFamily: 'Arial',
       color: C.text, wordWrap: { width: pw - 32 }, lineSpacing: 4,
     });
     con.add(bodyTxt);
-    y += Math.round(70 * s);
 
-    const hintTxt = this.add.text(px + 16, y, '', {
-      fontSize: Math.round(12 * s) + 'px', fontFamily: 'Arial', color: C.green,
+    const hintTxt = this.add.text(px + 16, contentY + 120, '', {
+      fontSize: '13px', fontFamily: 'Arial', color: C.green,
     });
     con.add(hintTxt);
-    y += Math.round(24 * s);
 
+    const showBook = () => {
+      if (unread.length === 0) {
+        titleTxt.setText('Archive empty.');
+        bodyTxt.setText('You have read everything here.');
+        return;
+      }
+      const book = unread[bookIdx % unread.length];
+      titleTxt.setText(book.title);
+      bodyTxt.setText(book.text);
+      hintTxt.setText(book.revealWeapon ? '[ contains a weapon hint ]' : '');
+    };
+    showBook();
+
+    let y = contentY + 160;
     if (unread.length > 0) {
-      showBook();
       this._addBtn(con, px + 16, y, pw - 32, '▸  Read this book', C.green, () => {
         const book = unread[bookIdx % unread.length];
         if (!inv.booksRead.includes(book.id)) inv.booksRead.push(book.id);
         if (book.revealWeapon) {
           const wDef = WEAPONS.find(w => w.id === book.revealWeapon);
-          if (wDef) hintTxt.setText(`"${wDef.name}" added to knowledge!`);
+          if (wDef) hintTxt.setText(`Discovered: "${wDef.name}"!`).setColor('#FFFFAA');
         }
         bookIdx++;
-        if (bookIdx < unread.length) showBook();
-        else {
-          titleTxt.setText('No more books here.');
-          bodyTxt.setText('');
-          hintTxt.setText('');
-        }
+        showBook();
       });
-      y += Math.round(38 * s);
+      y += 38;
     }
-
     this._addBtn(con, px + 16, y, pw - 32, '▸  Leave', '#446688', () => this._closePanel());
   }
 
   // ─── SHOP ────────────────────────────────────────────────────────────────
 
   _openShop() {
-    const { con, px, py, pw, ph, s, contentY } = this._makePanel('Shop', C.green);
+    const { con, px, py, pw, ph, contentY } = this._makePanel('⊞  Shop', C.green);
     const inv = getInventory();
 
-    // Tabs: BUY WEAPONS | BUY UPGRADES | SELL SPOILS
+    // Tab state
     let activeTab = 'weapons';
-    let tabContent = null;
-
     const tabs = [
-      { id: 'weapons',  label: 'Buy Weapons'   },
-      { id: 'upgrades', label: 'Buy Upgrades'  },
-      { id: 'sell',     label: 'Sell Spoils'   },
+      { id: 'weapons', label: 'Buy Weapons'  },
+      { id: 'upgrades',label: 'Buy Upgrades' },
+      { id: 'sell',    label: 'Sell Spoils'  },
     ];
-
-    const tabY = contentY;
-    const tabW = Math.round((pw - 32) / 3);
+    const tabW = Math.round((pw - 32) / 3) - 3;
     const tabBgs = [];
     for (let i = 0; i < tabs.length; i++) {
       const tx = px + 16 + i * (tabW + 4);
-      const bg = this.add.rectangle(tx + tabW * 0.5, tabY + 13, tabW, 26, 0x091624, 1)
+      const tbg = this.add.rectangle(tx + tabW * 0.5, contentY + 13, tabW, 26, 0x091624, 1)
         .setInteractive({ useHandCursor: true });
-      const txt = this.add.text(tx + 4, tabY + 2, tabs[i].label, {
-        fontSize: Math.round(11 * s) + 'px', fontFamily: 'Arial', color: '#88BBFF',
-        fixedWidth: tabW - 8,
+      const ttxt = this.add.text(tx + 4, contentY + 2, tabs[i].label, {
+        fontSize: '11px', fontFamily: 'Arial', color: '#88BBFF', fixedWidth: tabW - 8,
       });
       const idx = i;
-      bg.on('pointerdown', () => {
-        activeTab = tabs[idx].id;
-        refreshTabs();
-        buildTabContent();
+      tbg.on('pointerdown', () => {
+        activeTab = tabs[idx].id; refreshTabs(); buildTab();
       });
-      con.add(bg); con.add(txt);
-      tabBgs.push({ bg, txt, id: tabs[i].id });
+      con.add(tbg); con.add(ttxt);
+      tabBgs.push({ tbg, ttxt, id: tabs[i].id });
     }
 
     const refreshTabs = () => {
-      for (const t of tabBgs) {
-        t.bg.setFillColor(t.id === activeTab ? 0x1E3E7E : 0x091624);
-      }
+      for (const t of tabBgs) t.tbg.setFillColor(t.id === activeTab ? 0x1E3E7E : 0x091624);
     };
 
-    const credTxt = this.add.text(px + 16, tabY + Math.round(32 * s),
-      `Credits: ${inv.credits}`, {
-        fontSize: Math.round(12 * s) + 'px', fontFamily: 'Arial', color: C.gold,
-      });
+    const credTxt = this.add.text(px + 16, contentY + 34,
+      `Credits: ${inv.credits}`, { fontSize: '13px', fontFamily: 'Arial', color: C.gold });
     con.add(credTxt);
 
-    const listStart = tabY + Math.round(60 * s);
+    const listY = contentY + 58;
+    let tabCon = null;
 
-    const buildTabContent = () => {
-      if (tabContent) tabContent.destroy();
-      tabContent = this.add.container(0, 0);
-      con.add(tabContent);
+    const buildTab = () => {
+      if (tabCon) tabCon.destroy();
+      tabCon = this.add.container(0, 0);
+      con.add(tabCon);
       credTxt.setText(`Credits: ${inv.credits}`);
 
       if (activeTab === 'weapons') {
         let oy = 0;
         for (const w of WEAPONS) {
-          if (w.buyPrice === 0) continue;   // no selling fists
-          const owned = hasWeapon(w.id);
+          if (w.buyPrice === 0) continue;
+          const owned  = hasWeapon(w.id);
           const canBuy = !owned && inv.credits >= w.buyPrice;
-          const col = owned ? '#446644' : (canBuy ? '#88BBFF' : '#444466');
-          const suffix = owned ? ' [owned]' : ` — ${w.buyPrice}c`;
-          const row = this.add.text(px + 16, listStart + oy,
-            `${w.name}${suffix}  (${w.damage} dmg)`, {
-              fontSize: Math.round(11 * s) + 'px', fontFamily: 'Arial',
-              color: col, fixedWidth: pw - 32,
+          const col    = owned ? '#446644' : canBuy ? '#88BBFF' : '#334455';
+          const suffix = owned ? '[owned]' : `${w.buyPrice}c`;
+          const row = this.add.text(px + 16, listY + oy,
+            `${w.name}   ${w.damage} dmg   ${suffix}`, {
+              fontSize: '12px', fontFamily: 'Arial', color: col,
+              fixedWidth: pw - 32,
               backgroundColor: canBuy ? '#091624' : undefined,
-              padding: canBuy ? { x: 4, y: 3 } : undefined,
+              padding: canBuy ? { x: 4, y: 4 } : undefined,
             });
           if (canBuy) {
             row.setInteractive({ useHandCursor: true });
             row.on('pointerover', () => row.setStyle({ color: '#FFFFFF', backgroundColor: '#112244' }));
-            row.on('pointerout',  () => row.setStyle({ color: col,       backgroundColor: '#091624' }));
+            row.on('pointerout',  () => row.setStyle({ color: col, backgroundColor: '#091624' }));
             row.on('pointerdown', () => {
               if (inv.credits < w.buyPrice) return;
-              inv.credits -= w.buyPrice;
-              addWeapon(w);
-              buildTabContent();
+              inv.credits -= w.buyPrice; addWeapon(w); buildTab();
             });
           }
-          tabContent.add(row);
-          oy += Math.round(24 * s);
+          tabCon.add(row);
+          oy += 26;
         }
       }
 
       if (activeTab === 'upgrades') {
         let oy = 0;
         for (const u of SHIP_UPGRADES) {
-          const curLevel = inv.shipUpgrades[u.type] || 0;
-          const owned    = curLevel >= u.level;
-          const canBuy   = !owned && curLevel === u.level - 1 && inv.credits >= u.buyPrice;
-          const col      = owned ? '#446644' : (canBuy ? '#88BBFF' : '#444466');
-          const suffix   = owned ? ' [installed]' : ` — ${u.buyPrice}c`;
-          const row = this.add.text(px + 16, listStart + oy,
-            `${u.name}${suffix}`, {
-              fontSize: Math.round(11 * s) + 'px', fontFamily: 'Arial',
-              color: col, fixedWidth: pw - 32,
+          const cur    = inv.shipUpgrades[u.type] || 0;
+          const owned  = cur >= u.level;
+          const canBuy = !owned && cur === u.level - 1 && inv.credits >= u.buyPrice;
+          const col    = owned ? '#446644' : canBuy ? '#88BBFF' : '#334455';
+          const suffix = owned ? '[installed]' : `${u.buyPrice}c`;
+          const row = this.add.text(px + 16, listY + oy,
+            `${u.name}   ${suffix}`, {
+              fontSize: '12px', fontFamily: 'Arial', color: col,
+              fixedWidth: pw - 32,
               backgroundColor: canBuy ? '#091624' : undefined,
-              padding: canBuy ? { x: 4, y: 3 } : undefined,
+              padding: canBuy ? { x: 4, y: 4 } : undefined,
             });
           if (canBuy) {
             row.setInteractive({ useHandCursor: true });
             row.on('pointerover', () => row.setStyle({ color: '#FFFFFF', backgroundColor: '#112244' }));
-            row.on('pointerout',  () => row.setStyle({ color: col,       backgroundColor: '#091624' }));
+            row.on('pointerout',  () => row.setStyle({ color: col, backgroundColor: '#091624' }));
             row.on('pointerdown', () => {
               if (inv.credits < u.buyPrice) return;
-              inv.credits -= u.buyPrice;
-              inv.shipUpgrades[u.type] = u.level;
-              buildTabContent();
+              inv.credits -= u.buyPrice; inv.shipUpgrades[u.type] = u.level; buildTab();
             });
           }
-          tabContent.add(row);
-          oy += Math.round(24 * s);
+          tabCon.add(row);
+          oy += 26;
         }
       }
 
       if (activeTab === 'sell') {
         let oy = 0;
         if (inv.spoils.length === 0) {
-          tabContent.add(this.add.text(px + 16, listStart, 'No spoils to sell.', {
-            fontSize: Math.round(12 * s) + 'px', fontFamily: 'Arial', color: '#446668',
-          }));
+          tabCon.add(this.add.text(px + 16, listY, 'No spoils to sell.',
+            { fontSize: '13px', fontFamily: 'Arial', color: '#334455' }));
         }
         for (const sp of inv.spoils) {
-          const row = this.add.text(px + 16, listStart + oy,
-            `${sp.name} ×${sp.qty}  → ${sp.sellPrice}c each`, {
-              fontSize: Math.round(11 * s) + 'px', fontFamily: 'Arial',
-              color: '#FFCC66', fixedWidth: pw - 32,
-              backgroundColor: '#091624', padding: { x: 4, y: 3 },
+          const row = this.add.text(px + 16, listY + oy,
+            `${sp.name}  ×${sp.qty}  →  ${sp.sellPrice} credits each`, {
+              fontSize: '12px', fontFamily: 'Arial', color: '#FFCC66',
+              fixedWidth: pw - 32,
+              backgroundColor: '#091624', padding: { x: 4, y: 4 },
             });
           row.setInteractive({ useHandCursor: true });
           row.on('pointerover', () => row.setStyle({ backgroundColor: '#112244' }));
           row.on('pointerout',  () => row.setStyle({ backgroundColor: '#091624' }));
-          row.on('pointerdown', () => { sellSpoil(sp.id); buildTabContent(); });
-          tabContent.add(row);
-          oy += Math.round(24 * s);
+          row.on('pointerdown', () => { sellSpoil(sp.id); buildTab(); });
+          tabCon.add(row);
+          oy += 26;
         }
       }
     };
 
     refreshTabs();
-    buildTabContent();
+    buildTab();
 
-    const closeY = py + ph - Math.round(38 * s);
+    const closeY = py + ph - 38;
     this._addBtn(con, px + 16, closeY, pw - 32, '▸  Leave shop', '#446668',
       () => this._closePanel());
   }
@@ -738,20 +594,17 @@ export default class PortScene extends Phaser.Scene {
 
   _startBrawl() {
     this.scene.sleep('PortScene');
-    this.scene.launch('BrawlScene', {
-      moonId: this._moonId,
-    });
+    this.scene.launch('BrawlScene', { moonId: this._moonId });
   }
 
   _onBrawlReturn(sys, data) {
-    // data: { creditsEarned, spoils[] } from BrawlScene
     if (data) {
       const inv = getInventory();
       inv.credits += data.creditsEarned || 0;
       for (const s of (data.spoils || [])) addSpoil(s);
     }
     this._panelOpen = false;
-    this._updateHud();
+    this._updateStatus('Select a room to enter.');
   }
 
   // ------------------------------------------------------------------ exit
