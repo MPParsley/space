@@ -7,6 +7,7 @@ import { NavigationSystem } from '../systems/NavigationSystem.js';
 import { CameraSystem } from '../systems/CameraSystem.js';
 import { SoundSystem } from '../systems/SoundSystem.js';
 import { AsteroidSystem } from '../systems/AsteroidSystem.js';
+import { EncounterSystem } from '../systems/EncounterSystem.js';
 
 // Main game scene — solar system navigation mode
 export default class SolarSystemScene extends Phaser.Scene {
@@ -51,6 +52,15 @@ export default class SolarSystemScene extends Phaser.Scene {
     this.asteroidSystem.onScore   = score => this._ui().setScore(score);
     this.asteroidSystem.onDestroy = ()    => this.soundSystem.playExplode();
 
+    this.encounterSystem = new EncounterSystem(this, this.ship);
+    this.encounterSystem.onEncounter = (shipData, shipObj) => {
+      this._activeEncounterShip = shipObj;
+      this.soundSystem.playEncounterAlarm();
+      this.scene.launch('EncounterScene', { shipData });
+      this.scene.bringToTop('EncounterScene');
+    };
+    this._activeEncounterShip = null;
+
     this.navSystem = new NavigationSystem(this, this.ship);
     this.navSystem.onDocked = bodyObj => this._onDocked(bodyObj);
 
@@ -90,6 +100,7 @@ export default class SolarSystemScene extends Phaser.Scene {
     this.navSystem.update(delta);
     this._applyGravity(delta);
     this.asteroidSystem.update(delta, this.cameras.main);
+    this.encounterSystem.update(delta, time);
     this._updateCourseLine();
     this._updateLabels();
     this._softFollowShip(delta);
@@ -426,6 +437,81 @@ export default class SolarSystemScene extends Phaser.Scene {
     this.scene.launch('DialogueScene', { bodyData: bodyObj.data });
     this.scene.bringToTop('DialogueScene');
     this.cameraSystem.focusOn(bodyObj.worldX, bodyObj.worldY, 1.2, 900);
+  }
+
+  // ------------------------------------------------------------------ Encounters
+
+  /** Called by EncounterScene when the player picks an option. */
+  handleEncounterChoice(choice, shipData) {
+    const ship = this._activeEncounterShip;
+
+    switch (choice) {
+      case 'hail':
+        // Open a dialogue with the NPC using the encounter's pre-written tree
+        this.scene.launch('DialogueScene', {
+          bodyData: { id: 'encounter_' + shipData.id, name: shipData.name },
+          dialogue: {
+            npc:      shipData.hailNpc,
+            color:    '#' + shipData.accentColor.toString(16).padStart(6, '0'),
+            greeting: shipData.hailGreeting,
+            tree:     shipData.hailTree,
+          },
+        });
+        this.scene.bringToTop('DialogueScene');
+        if (ship) this.encounterSystem.dismissShip(ship);
+        this._activeEncounterShip = null;
+        break;
+
+      case 'flee':
+        // Give the player an impulse away from the NPC
+        if (ship) {
+          const dx = this.ship.x - ship.worldX;
+          const dy = this.ship.y - ship.worldY;
+          const d  = Math.hypot(dx, dy) || 1;
+          this.navSystem.clearTarget();
+          this.navSystem.vx = (dx / d) * 90;
+          this.navSystem.vy = (dy / d) * 90;
+          this.encounterSystem.dismissShip(ship);
+        }
+        this._activeEncounterShip = null;
+        break;
+
+      case 'intimidate_success':
+        if (ship) this.encounterSystem.dismissShip(ship);
+        this._activeEncounterShip = null;
+        break;
+
+      case 'intimidate_fail':
+      case 'attack':
+        // Short delay so EncounterScene has time to finish closing
+        this.time.delayedCall(150, () => this.startBattle(shipData));
+        break;
+    }
+  }
+
+  /** Pause the solar system and launch the battle arena. */
+  startBattle(shipData) {
+    if (this.scene.isActive('DialogueScene')) this.scene.stop('DialogueScene');
+    this.scene.sleep('UIScene');
+    this.scene.sleep('SolarSystemScene');
+    this.scene.launch('BattleScene', { enemyData: shipData });
+  }
+
+  /** Called by BattleScene when combat ends. */
+  onBattleEnd(playerWon) {
+    this.encounterSystem.clearEncounterFlag();
+    if (this._activeEncounterShip) {
+      // Win: enemy destroyed. Lose/retreat: both sides disengage.
+      this.encounterSystem.dismissShip(this._activeEncounterShip);
+      this._activeEncounterShip = null;
+    }
+    if (!playerWon) {
+      // Respawn near Earth
+      const earth = this.planets.find(p => p.data.id === 'earth');
+      if (earth) this.ship.setPosition(earth.worldX + 65, earth.worldY);
+      this.navSystem.resetVelocity();
+      this.cameraSystem.focusOn(this.ship.x, this.ship.y, 0.45, 600);
+    }
   }
 
   _ui() {

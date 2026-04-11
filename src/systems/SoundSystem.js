@@ -113,6 +113,62 @@ export class SoundSystem {
     osc.stop(t + 0.11);
   }
 
+  /** Double-beep alarm when an NPC ship is detected nearby. */
+  playEncounterAlarm() {
+    const ctx = this._ctx();
+    if (!ctx) return;
+    [0, 0.19].forEach(delay => {
+      const t   = ctx.currentTime + delay;
+      const osc = ctx.createOscillator();
+      osc.type  = 'square';
+      osc.frequency.value = 660;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.07, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.17);
+    });
+  }
+
+  /** Dull impact thud when a ship takes damage. */
+  playHit() {
+    const ctx = this._ctx();
+    if (!ctx) return;
+    const t   = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type  = 'sawtooth';
+    osc.frequency.setValueAtTime(190, t);
+    osc.frequency.linearRampToValueAtTime(65, t + 0.11);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.18, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.14);
+  }
+
+  /** Enemy laser — same as player shoot but slightly lower pitch. */
+  playEnemyShoot() {
+    const ctx = this._ctx();
+    if (!ctx) return;
+    const t   = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type  = 'square';
+    osc.frequency.setValueAtTime(950, t);
+    osc.frequency.exponentialRampToValueAtTime(160, t + 0.13);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.09, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.16);
+  }
+
   /** Short laser zap when firing a bullet. */
   playShoot() {
     const ctx = this._ctx();
