@@ -21,7 +21,7 @@ export class AsteroidSystem {
     this._spawnT  = 1800; // delay before first asteroid appears
 
     this.score     = 0;
-    this.onScore   = null; // callback(score) fired on each destroy
+    this.onScore   = null; // callback(creditsEarned) fired on each destroy
     this.onDestroy = null; // callback(x, y) for sounds etc.
   }
 
@@ -74,8 +74,10 @@ export class AsteroidSystem {
           r.destroy();
           this._rocks.splice(ri, 1);
           this._bullets.splice(bi, 1);
-          this.score++;
-          if (this.onScore) this.onScore(this.score);
+          // Credits scale with asteroid size (radius 8–26 → 5–20c)
+          const earned = Math.max(5, Math.round(r.radius * 0.75));
+          this.score += earned;
+          if (this.onScore) this.onScore(earned);
           continue outer;
         }
       }
