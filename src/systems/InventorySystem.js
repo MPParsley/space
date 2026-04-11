@@ -51,11 +51,12 @@ export function addSpoil(spoilDef, qty = 1) {
   else _inv.spoils.push({ ...spoilDef, qty });
 }
 
-export function sellSpoil(id) {
+export function sellSpoil(id, qty = 1) {
   const s = _inv.spoils.find(x => x.id === id);
   if (!s || s.qty <= 0) return 0;
-  const earned = s.sellPrice;
-  s.qty -= 1;
+  const n      = Math.min(qty, s.qty);
+  const earned = s.sellPrice * n;
+  s.qty -= n;
   if (s.qty === 0) _inv.spoils = _inv.spoils.filter(x => x.id !== id);
   _inv.credits += earned;
   return earned;

@@ -455,129 +455,298 @@ export default class PortScene extends Phaser.Scene {
   }
 
   // ─── SHOP ────────────────────────────────────────────────────────────────
+  // Layout: prominent credits banner at top, then tab row, then content.
+  // Weapons are shown as icon-grid slots (like classic CRPG inventory screens).
 
   _openShop() {
     const { con, px, py, pw, ph, contentY } = this._makePanel('⊞  Shop', C.green);
     const inv = getInventory();
 
-    // Tab state
+    // ── Credits banner (large, centred — prominent like a Gold Box screen) ──
+    const credBg = this.add.graphics();
+    credBg.fillStyle(0x030C18, 1);
+    credBg.fillRoundedRect(px + 16, contentY, pw - 32, 34, 6);
+    con.add(credBg);
+    const credTxt = this.add.text(px + pw * 0.5, contentY + 17, '', {
+      fontSize: '18px', fontFamily: 'Arial', fontStyle: 'bold', color: C.gold,
+    }).setOrigin(0.5);
+    con.add(credTxt);
+    const refreshCreds = () => credTxt.setText(`◆  ${inv.credits.toLocaleString()}  CREDITS`);
+    refreshCreds();
+
+    // ── Tab strip ────────────────────────────────────────────────────────────
+    const tabY  = contentY + 42;
     let activeTab = 'weapons';
-    const tabs = [
-      { id: 'weapons', label: 'Buy Weapons'  },
-      { id: 'upgrades',label: 'Buy Upgrades' },
-      { id: 'sell',    label: 'Sell Spoils'  },
+    const tabs  = [
+      { id: 'weapons',  label: 'WEAPONS'  },
+      { id: 'upgrades', label: 'UPGRADES' },
+      { id: 'spoils',   label: 'SPOILS'   },
     ];
-    const tabW = Math.round((pw - 32) / 3) - 3;
+    const tabW  = Math.round((pw - 32) / 3) - 3;
     const tabBgs = [];
     for (let i = 0; i < tabs.length; i++) {
-      const tx = px + 16 + i * (tabW + 4);
-      const tbg = this.add.rectangle(tx + tabW * 0.5, contentY + 13, tabW, 26, 0x091624, 1)
+      const tx  = px + 16 + i * (tabW + 4);
+      const tbg = this.add.rectangle(tx + tabW * 0.5, tabY + 13, tabW, 24, 0x091624, 1)
         .setInteractive({ useHandCursor: true });
-      const ttxt = this.add.text(tx + 4, contentY + 2, tabs[i].label, {
-        fontSize: '11px', fontFamily: 'Arial', color: '#88BBFF', fixedWidth: tabW - 8,
-      });
+      const ttx = this.add.text(tx + tabW * 0.5, tabY + 3, tabs[i].label, {
+        fontSize: '11px', fontFamily: 'Arial', fontStyle: 'bold', color: '#88BBFF',
+      }).setOrigin(0.5, 0);
       const idx = i;
-      tbg.on('pointerdown', () => {
-        activeTab = tabs[idx].id; refreshTabs(); buildTab();
-      });
-      con.add(tbg); con.add(ttxt);
-      tabBgs.push({ tbg, ttxt, id: tabs[i].id });
+      tbg.on('pointerdown', () => { activeTab = tabs[idx].id; refreshTabs(); buildTab(); });
+      con.add(tbg); con.add(ttx);
+      tabBgs.push({ tbg, id: tabs[i].id });
     }
-
     const refreshTabs = () => {
       for (const t of tabBgs) t.tbg.setFillStyle(t.id === activeTab ? 0x1E3E7E : 0x091624);
     };
 
-    const credTxt = this.add.text(px + 16, contentY + 34,
-      `Credits: ${inv.credits}`, { fontSize: '13px', fontFamily: 'Arial', color: C.gold });
-    con.add(credTxt);
+    // ── Detail panel (right of weapon grid) ──────────────────────────────────
+    const listY  = tabY + 30;
+    const listH  = ph - (listY - py) - 44;
+    // Split: left ~58% for grid/list, right ~38% for detail
+    const leftW  = Math.round((pw - 32) * 0.58);
+    const rightX = px + 16 + leftW + 8;
+    const rightW = pw - 32 - leftW - 8;
 
-    const listY = contentY + 58;
-    let tabCon = null;
+    let tabCon  = null;
+    let detailTxt = null;   // reused detail panel text
+
+    // Right-side detail box (persistent)
+    const detBg = this.add.graphics();
+    detBg.fillStyle(0x030C18, 1);
+    detBg.fillRoundedRect(rightX, listY, rightW, listH, 6);
+    detBg.lineStyle(1, 0x0E2040, 1);
+    detBg.strokeRoundedRect(rightX, listY, rightW, listH, 6);
+    con.add(detBg);
+    detailTxt = this.add.text(rightX + 8, listY + 8, 'Select an item\nto see details.', {
+      fontSize: '11px', fontFamily: 'Arial', color: '#334455',
+      wordWrap: { width: rightW - 16 }, lineSpacing: 4,
+    });
+    con.add(detailTxt);
+
+    const showDetail = (lines) => detailTxt.setText(lines.join('\n'));
 
     const buildTab = () => {
       if (tabCon) tabCon.destroy();
       tabCon = this.add.container(0, 0);
       con.add(tabCon);
-      credTxt.setText(`Credits: ${inv.credits}`);
+      refreshCreds();
 
+      // ── WEAPONS tab: icon grid ─────────────────────────────────────────────
       if (activeTab === 'weapons') {
-        let oy = 0;
-        for (const w of WEAPONS) {
-          if (w.buyPrice === 0) continue;
-          const owned  = hasWeapon(w.id);
-          const canBuy = !owned && inv.credits >= w.buyPrice;
-          const col    = owned ? '#446644' : canBuy ? '#88BBFF' : '#334455';
-          const suffix = owned ? '[owned]' : `${w.buyPrice}c`;
-          const row = this.add.text(px + 16, listY + oy,
-            `${w.name}   ${w.damage} dmg   ${suffix}`, {
-              fontSize: '12px', fontFamily: 'Arial', color: col,
-              fixedWidth: pw - 32,
-              backgroundColor: canBuy ? '#091624' : undefined,
-              padding: canBuy ? { x: 4, y: 4 } : undefined,
-            });
-          if (canBuy) {
-            row.setInteractive({ useHandCursor: true });
-            row.on('pointerover', () => row.setStyle({ color: '#FFFFFF', backgroundColor: '#112244' }));
-            row.on('pointerout',  () => row.setStyle({ color: col, backgroundColor: '#091624' }));
-            row.on('pointerdown', () => {
-              if (inv.credits < w.buyPrice) return;
-              inv.credits -= w.buyPrice; addWeapon(w); buildTab();
-            });
+        const forSale = WEAPONS.filter(w => w.buyPrice > 0);
+        const slotSz  = Math.round(Math.min((leftW - 4) / 4, listH / 2) - 4);
+        const cols    = Math.max(1, Math.floor((leftW) / (slotSz + 4)));
+
+        forSale.forEach((w, i) => {
+          const col   = i % cols;
+          const row   = Math.floor(i / cols);
+          const sx    = px + 16 + col * (slotSz + 4);
+          const sy    = listY + row * (slotSz + 4);
+          const owned = hasWeapon(w.id);
+          const can   = !owned && inv.credits >= w.buyPrice;
+
+          const fillCol = owned ? 0x1A3A1A : can ? 0x0A1E36 : 0x0A0A14;
+          const bdrCol  = owned ? 0x446644 : can ? 0x1E3E7E : 0x111122;
+
+          const sg = this.add.graphics();
+          sg.fillStyle(fillCol, 1);
+          sg.fillRect(sx, sy, slotSz, slotSz);
+          sg.lineStyle(1.5, bdrCol, 1);
+          sg.strokeRect(sx, sy, slotSz, slotSz);
+          tabCon.add(sg);
+
+          // Weapon type indicator bar (top)
+          const barCol = w.type === 'ranged' ? 0x224488 : 0x1A2E0A;
+          sg.fillStyle(barCol, 1);
+          sg.fillRect(sx + 2, sy + 2, slotSz - 4, 3);
+
+          // Damage number (big, centred)
+          const dmgT = this.add.text(sx + slotSz * 0.5, sy + slotSz * 0.38,
+            `${w.damage}`, {
+              fontSize: Math.round(slotSz * 0.36) + 'px',
+              fontFamily: 'Arial', fontStyle: 'bold',
+              color: owned ? '#446644' : can ? '#AADDFF' : '#223344',
+            }).setOrigin(0.5);
+          tabCon.add(dmgT);
+
+          // Short name (bottom)
+          const nameT = this.add.text(sx + slotSz * 0.5, sy + slotSz - 12,
+            w.name.split(' ')[0].substring(0, 6), {
+              fontSize: Math.round(slotSz * 0.17) + 'px',
+              fontFamily: 'Arial',
+              color: owned ? '#446644' : '#334455',
+            }).setOrigin(0.5, 1);
+          tabCon.add(nameT);
+
+          // Owned checkmark
+          if (owned) {
+            tabCon.add(this.add.text(sx + slotSz - 4, sy + 4, '✓', {
+              fontSize: '10px', fontFamily: 'Arial', color: '#44BB44',
+            }).setOrigin(1, 0));
           }
-          tabCon.add(row);
-          oy += 26;
-        }
+
+          if (!owned) {
+            const zone = this.add.zone(sx, sy, slotSz, slotSz).setOrigin(0)
+              .setInteractive({ useHandCursor: can });
+            tabCon.add(zone);
+            zone.on('pointerover', () => {
+              sg.clear();
+              sg.fillStyle(can ? 0x112244 : 0x0A0A14, 1);
+              sg.fillRect(sx, sy, slotSz, slotSz);
+              sg.lineStyle(1.5, can ? 0x4488FF : bdrCol, 1);
+              sg.strokeRect(sx, sy, slotSz, slotSz);
+              sg.fillStyle(barCol, 1);
+              sg.fillRect(sx + 2, sy + 2, slotSz - 4, 3);
+              showDetail([
+                w.name,
+                `Damage: ${w.damage}`,
+                `Type: ${w.type}`,
+                w.uses ? `Uses: ${w.uses}` : 'Uses: unlimited',
+                '',
+                w.desc,
+                '',
+                can ? `Price: ${w.buyPrice}c` : `Need ${w.buyPrice - inv.credits}c more`,
+              ]);
+            });
+            zone.on('pointerout', () => {
+              sg.clear();
+              sg.fillStyle(fillCol, 1); sg.fillRect(sx, sy, slotSz, slotSz);
+              sg.lineStyle(1.5, bdrCol, 1); sg.strokeRect(sx, sy, slotSz, slotSz);
+              sg.fillStyle(barCol, 1); sg.fillRect(sx + 2, sy + 2, slotSz - 4, 3);
+              showDetail(['Select an item\nto see details.']);
+            });
+            if (can) {
+              zone.on('pointerdown', () => {
+                inv.credits -= w.buyPrice; addWeapon(w); buildTab();
+              });
+            }
+          }
+        });
       }
 
+      // ── UPGRADES tab: compact list ─────────────────────────────────────────
       if (activeTab === 'upgrades') {
         let oy = 0;
+        const colW = leftW;
         for (const u of SHIP_UPGRADES) {
           const cur    = inv.shipUpgrades[u.type] || 0;
           const owned  = cur >= u.level;
           const canBuy = !owned && cur === u.level - 1 && inv.credits >= u.buyPrice;
+          const locked = !owned && cur < u.level - 1;
           const col    = owned ? '#446644' : canBuy ? '#88BBFF' : '#334455';
-          const suffix = owned ? '[installed]' : `${u.buyPrice}c`;
-          const row = this.add.text(px + 16, listY + oy,
-            `${u.name}   ${suffix}`, {
-              fontSize: '12px', fontFamily: 'Arial', color: col,
-              fixedWidth: pw - 32,
-              backgroundColor: canBuy ? '#091624' : undefined,
-              padding: canBuy ? { x: 4, y: 4 } : undefined,
-            });
+
+          const row = this.add.graphics();
+          row.fillStyle(owned ? 0x0A1A0A : canBuy ? 0x0A1624 : 0x080810, 1);
+          row.fillRect(px + 16, listY + oy, colW, 26);
           if (canBuy) {
-            row.setInteractive({ useHandCursor: true });
-            row.on('pointerover', () => row.setStyle({ color: '#FFFFFF', backgroundColor: '#112244' }));
-            row.on('pointerout',  () => row.setStyle({ color: col, backgroundColor: '#091624' }));
-            row.on('pointerdown', () => {
-              if (inv.credits < u.buyPrice) return;
+            row.lineStyle(1, 0x1E3E7E, 0.6);
+            row.strokeRect(px + 16, listY + oy, colW, 26);
+          }
+          tabCon.add(row);
+
+          const statusStr = owned ? '✓' : canBuy ? `${u.buyPrice}c` : locked ? '🔒' : '';
+          tabCon.add(this.add.text(px + 20, listY + oy + 5,
+            `${u.name}  —  ${u.desc}`, {
+              fontSize: '11px', fontFamily: 'Arial', color: col, fixedWidth: colW - 50,
+            }));
+          tabCon.add(this.add.text(px + 16 + colW - 4, listY + oy + 5,
+            statusStr, { fontSize: '11px', fontFamily: 'Arial', color: col }).setOrigin(1, 0));
+
+          if (canBuy) {
+            const zone = this.add.zone(px + 16, listY + oy, colW, 26).setOrigin(0)
+              .setInteractive({ useHandCursor: true });
+            tabCon.add(zone);
+            zone.on('pointerover', () => {
+              row.clear();
+              row.fillStyle(0x112244, 1); row.fillRect(px + 16, listY + oy, colW, 26);
+              showDetail([u.name, '', u.desc, '', `Price: ${u.buyPrice}c`]);
+            });
+            zone.on('pointerout', () => {
+              row.clear();
+              row.fillStyle(0x0A1624, 1); row.fillRect(px + 16, listY + oy, colW, 26);
+              row.lineStyle(1, 0x1E3E7E, 0.6); row.strokeRect(px + 16, listY + oy, colW, 26);
+              showDetail(['Select an item\nto see details.']);
+            });
+            zone.on('pointerdown', () => {
               inv.credits -= u.buyPrice; inv.shipUpgrades[u.type] = u.level; buildTab();
             });
           }
-          tabCon.add(row);
-          oy += 26;
+          oy += 30;
         }
       }
 
-      if (activeTab === 'sell') {
-        let oy = 0;
+      // ── SPOILS tab: list with coloured gem icons ───────────────────────────
+      if (activeTab === 'spoils') {
+        // Spoil gem colours
+        const gemCol = {
+          scrap: 0x667788, chip: 0x4488AA, parts: 0x448844,
+          crystal: 0x8844AA, relic: 0xCC8800,
+        };
+
         if (inv.spoils.length === 0) {
-          tabCon.add(this.add.text(px + 16, listY, 'No spoils to sell.',
-            { fontSize: '13px', fontFamily: 'Arial', color: '#334455' }));
-        }
-        for (const sp of inv.spoils) {
-          const row = this.add.text(px + 16, listY + oy,
-            `${sp.name}  ×${sp.qty}  →  ${sp.sellPrice} credits each`, {
-              fontSize: '12px', fontFamily: 'Arial', color: '#FFCC66',
-              fixedWidth: pw - 32,
-              backgroundColor: '#091624', padding: { x: 4, y: 4 },
-            });
-          row.setInteractive({ useHandCursor: true });
-          row.on('pointerover', () => row.setStyle({ backgroundColor: '#112244' }));
-          row.on('pointerout',  () => row.setStyle({ backgroundColor: '#091624' }));
-          row.on('pointerdown', () => { sellSpoil(sp.id); buildTab(); });
-          tabCon.add(row);
-          oy += 26;
+          tabCon.add(this.add.text(px + 16, listY + 16,
+            'No spoils in your pack.', {
+              fontSize: '13px', fontFamily: 'Arial', color: '#334455',
+            }));
+        } else {
+          // Total value
+          const total = inv.spoils.reduce((s, sp) => s + sp.sellPrice * sp.qty, 0);
+          tabCon.add(this.add.text(px + 16, listY + 2,
+            `Total value: ${total.toLocaleString()} credits`, {
+              fontSize: '11px', fontFamily: 'Arial', color: '#556677',
+            }));
+
+          // Sell-All button
+          const saBtn = this.add.rectangle(px + leftW - 2, listY + 10, 74, 20, 0x1A3A0A, 1)
+            .setOrigin(1, 0.5).setInteractive({ useHandCursor: true });
+          const saTxt = this.add.text(px + leftW - 39, listY + 10, 'SELL ALL', {
+            fontSize: '10px', fontFamily: 'Arial', fontStyle: 'bold', color: C.green,
+          }).setOrigin(0.5);
+          saBtn.on('pointerover', () => saBtn.setFillStyle(0x2A5A1A));
+          saBtn.on('pointerout',  () => saBtn.setFillStyle(0x1A3A0A));
+          saBtn.on('pointerdown', () => {
+            for (const sp of [...inv.spoils]) sellSpoil(sp.id, sp.qty);
+            buildTab();
+          });
+          tabCon.add(saBtn); tabCon.add(saTxt);
+
+          let oy = 22;
+          for (const sp of inv.spoils) {
+            const col = gemCol[sp.id] || 0x668866;
+
+            // Gem icon (small diamond)
+            const gi = this.add.graphics();
+            const gx = px + 22, gy = listY + oy + 14;
+            gi.fillStyle(col, 1);
+            gi.fillTriangle(gx, gy - 8, gx - 7, gy, gx + 7, gy);
+            gi.fillTriangle(gx, gy + 4, gx - 7, gy, gx + 7, gy);
+            tabCon.add(gi);
+
+            // Name + qty
+            tabCon.add(this.add.text(px + 34, listY + oy + 3,
+              `${sp.name}  ×${sp.qty}`, {
+                fontSize: '12px', fontFamily: 'Arial', color: '#AABBCC',
+              }));
+            // Value
+            tabCon.add(this.add.text(px + 34, listY + oy + 17,
+              `${sp.sellPrice}c each`, {
+                fontSize: '11px', fontFamily: 'Arial', color: '#556677',
+              }));
+
+            // Sell-one button
+            const sb = this.add.rectangle(px + leftW - 2, listY + oy + 14,
+              54, 20, 0x0A2A0A, 1).setOrigin(1, 0.5).setInteractive({ useHandCursor: true });
+            const st = this.add.text(px + leftW - 28, listY + oy + 14,
+              `SELL`, { fontSize: '10px', fontFamily: 'Arial', color: '#44AA44' }).setOrigin(0.5);
+            sb.on('pointerover', () => sb.setFillStyle(0x1A4A1A));
+            sb.on('pointerout',  () => sb.setFillStyle(0x0A2A0A));
+            const spId = sp.id;
+            sb.on('pointerdown', () => { sellSpoil(spId); buildTab(); });
+            tabCon.add(sb); tabCon.add(st);
+
+            oy += 34;
+          }
         }
       }
     };
