@@ -21,30 +21,37 @@ export class SoundSystem {
     const ctx = this._ctx();
     if (!ctx) return;
 
-    // Master gain — fades in
+    // Lowpass filter — keeps only the low rumble, removes harsh overtones
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 180;
+    filter.Q.value = 0.8;
+    filter.connect(ctx.destination);
+
+    // Master gain — slow fade-in so the sound eases in unobtrusively
     const master = ctx.createGain();
     master.gain.setValueAtTime(0, ctx.currentTime);
-    master.gain.linearRampToValueAtTime(0.09, ctx.currentTime + 0.1);
-    master.connect(ctx.destination);
+    master.gain.linearRampToValueAtTime(0.04, ctx.currentTime + 0.4);
+    master.connect(filter);
 
-    // Primary low rumble (sawtooth at 65 Hz)
+    // Soft low rumble (sine at 58 Hz)
     const osc1 = ctx.createOscillator();
-    osc1.type = 'sawtooth';
-    osc1.frequency.value = 65;
+    osc1.type = 'sine';
+    osc1.frequency.value = 58;
     osc1.connect(master);
     osc1.start();
 
-    // Harmonic octave above — adds body without harshness
+    // Gentle sub-harmonic (sine at 29 Hz) — felt more than heard
     const osc2 = ctx.createOscillator();
-    osc2.type = 'square';
-    osc2.frequency.value = 130;
+    osc2.type = 'sine';
+    osc2.frequency.value = 29;
     const h = ctx.createGain();
-    h.gain.value = 0.22;
+    h.gain.value = 0.35;
     osc2.connect(h);
     h.connect(master);
     osc2.start();
 
-    this._thrusterNodes = { master, osc1, osc2 };
+    this._thrusterNodes = { master, osc1, osc2, filter };
   }
 
   /** Fade out and stop thruster. Idempotent. */
@@ -60,12 +67,13 @@ export class SoundSystem {
     if (!ctx) return;
 
     const t = ctx.currentTime;
-    const { master, osc1, osc2 } = nodes;
+    const { master, osc1, osc2, filter } = nodes;
     master.gain.cancelScheduledValues(t);
     master.gain.setValueAtTime(master.gain.value, t);
-    master.gain.linearRampToValueAtTime(0, t + 0.28);
-    osc1.stop(t + 0.32);
-    osc2.stop(t + 0.32);
+    master.gain.linearRampToValueAtTime(0, t + 0.35);
+    osc1.stop(t + 0.38);
+    osc2.stop(t + 0.38);
+    if (filter) setTimeout(() => { try { filter.disconnect(); } catch (_) {} }, 400);
   }
 
   /** Two-note ascending chime on arrival at a planet. */
