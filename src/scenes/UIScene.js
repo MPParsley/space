@@ -1,6 +1,8 @@
-// UIScene — HUD, planet info card, and virtual joystick overlay
+// UIScene — HUD, planet info card, virtual joystick, and inventory overlay.
 // Runs parallel to SolarSystemScene, always on top.
-// Its camera has no zoom/scroll so elements stay fixed on screen.
+
+import { getInventory } from '../systems/InventorySystem.js';
+import { WEAPONS } from '../data/items.js';
 
 export default class UIScene extends Phaser.Scene {
   constructor() {
@@ -28,15 +30,31 @@ export default class UIScene extends Phaser.Scene {
       strokeThickness: 3,
     });
 
-    // ---- Score counter (top-right) ----
-    this.scoreText = this.add.text(width - 14, 14, 'Blasted: 0', {
+    // ---- Credits display (top-right) ----
+    this._creditsText = this.add.text(width - 14, 14, '', {
       fontSize: '14px',
       fontFamily: "'Arial', sans-serif",
       fontStyle: 'bold',
-      color: '#FFCC44',
+      color: '#FFD700',
       stroke: '#000820',
       strokeThickness: 4,
     }).setOrigin(1, 0);
+
+    // ---- Inventory button [I] ----
+    this._invBtn = this.add.text(width - 14, 34, '[I]', {
+      fontSize: '12px',
+      fontFamily: "'Arial', sans-serif",
+      color: '#446688',
+      stroke: '#000820',
+      strokeThickness: 3,
+    }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+    this._invBtn.on('pointerover', () => this._invBtn.setStyle({ color: '#88BBFF' }));
+    this._invBtn.on('pointerout',  () => this._invBtn.setStyle({ color: '#446688' }));
+    this._invBtn.on('pointerdown', () => this._toggleInventory());
+
+    // ---- Inventory panel (hidden by default) ----
+    this._invPanel = null;
+    this._invOpen  = false;
 
     // ---- Zoom hint (fades out) ----
     this.hintText = this.add.text(width * 0.5, height - 18,
@@ -69,7 +87,8 @@ export default class UIScene extends Phaser.Scene {
       this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height);
       this._repositionJoystick(gameSize.width, gameSize.height);
       this._repositionFireButton(gameSize.width, gameSize.height);
-      this.scoreText.setPosition(gameSize.width - 14, 14);
+      this._creditsText.setPosition(gameSize.width - 14, 14);
+      this._invBtn.setPosition(gameSize.width - 14, 34);
     });
   }
 
@@ -385,6 +404,167 @@ export default class UIScene extends Phaser.Scene {
     return this._isNearJoystick(x, y) || this._isNearFireBtn(x, y);
   }
 
+  // ------------------------------------------------------------------ Update
+
+  update() {
+    const inv = getInventory();
+    this._creditsText.setText('◆ ' + inv.credits.toLocaleString() + ' cr');
+  }
+
+  // ------------------------------------------------------------------ Inventory panel
+
+  _toggleInventory() {
+    if (this._invOpen) {
+      this._invOpen = false;
+      if (this._invPanel) { this._invPanel.destroy(); this._invPanel = null; }
+    } else {
+      this._invOpen = true;
+      this._buildInventoryPanel();
+    }
+  }
+
+  _buildInventoryPanel() {
+    const { width, height } = this.scale;
+    const inv   = getInventory();
+    const pw    = Math.min(width - 20, 400);
+    const ph    = Math.min(height - 60, 420);
+    const px    = (width - pw) * 0.5;
+    const py    = (height - ph) * 0.5;
+
+    const con = this.add.container(0, 0).setDepth(80);
+    this._invPanel = con;
+
+    // Backdrop
+    const mask = this.add.rectangle(0, 0, width, height, 0x000000, 0.65)
+      .setOrigin(0).setInteractive();
+    mask.on('pointerdown', () => this._toggleInventory());
+    con.add(mask);
+
+    // Box
+    const bg = this.add.graphics();
+    bg.fillStyle(0x050D1A, 0.98);
+    bg.fillRoundedRect(px, py, pw, ph, 14);
+    bg.lineStyle(2, 0x1E3E7E, 1);
+    bg.strokeRoundedRect(px, py, pw, ph, 14);
+    bg.fillStyle(0x0A1E36, 1);
+    bg.fillRoundedRect(px, py, pw, 46, { tl: 14, tr: 14, bl: 0, br: 0 });
+    con.add(bg);
+
+    con.add(this.add.text(px + 16, py + 14, 'INVENTORY', {
+      fontSize: '16px', fontFamily: 'Arial', fontStyle: 'bold', color: '#FFD700',
+    }));
+
+    const closeBtn = this.add.text(px + pw - 12, py + 12, '✕', {
+      fontSize: '18px', fontFamily: 'Arial', color: '#446688',
+    }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', () => this._toggleInventory());
+    con.add(closeBtn);
+
+    const sep = this.add.graphics();
+    sep.lineStyle(1, 0x1E3E7E, 0.5);
+    sep.lineBetween(px + 12, py + 46, px + pw - 12, py + 46);
+    con.add(sep);
+
+    let y = py + 54;
+    const col1 = px + 16;
+    const col2 = px + pw * 0.52;
+    const lh   = 20;
+
+    // ── Credits & HP ──────────────────────────────────────────────────────
+    con.add(this.add.text(col1, y, '◆  CREDITS', {
+      fontSize: '11px', fontFamily: 'Arial', color: '#556677',
+    }));
+    con.add(this.add.text(col2, y, `${inv.credits.toLocaleString()}`, {
+      fontSize: '15px', fontFamily: 'Arial', fontStyle: 'bold', color: '#FFD700',
+    }));
+    y += lh + 4;
+
+    con.add(this.add.text(col1, y, '♥  HP', {
+      fontSize: '11px', fontFamily: 'Arial', color: '#556677',
+    }));
+    const hpCol = inv.miloHp > inv.miloMaxHp * 0.5 ? '#44FF88'
+                : inv.miloHp > inv.miloMaxHp * 0.25 ? '#FFCC00' : '#FF4444';
+    con.add(this.add.text(col2, y, `${inv.miloHp} / ${inv.miloMaxHp}`, {
+      fontSize: '13px', fontFamily: 'Arial', fontStyle: 'bold', color: hpCol,
+    }));
+    y += lh + 8;
+
+    // Divider
+    const dv = this.add.graphics();
+    dv.lineStyle(1, 0x0E2040, 0.8);
+    dv.lineBetween(col1, y, px + pw - 16, y);
+    con.add(dv);
+    y += 8;
+
+    // ── Weapons ──────────────────────────────────────────────────────────
+    con.add(this.add.text(col1, y, 'WEAPONS', {
+      fontSize: '10px', fontFamily: 'Arial', fontStyle: 'bold', color: '#334455',
+    }));
+    y += 16;
+    for (const w of inv.weapons) {
+      const isEq = w.id === inv.equippedWeapon;
+      const usesStr = w.uses !== null ? ` [${w.uses} uses]` : ' [∞]';
+      con.add(this.add.text(col1, y,
+        `${isEq ? '▶ ' : '  '}${w.name}${usesStr}`, {
+          fontSize: '12px', fontFamily: 'Arial',
+          color: isEq ? '#AADDFF' : '#667788',
+        }));
+      con.add(this.add.text(col2, y, `${w.damage} dmg  ${w.type}`, {
+        fontSize: '11px', fontFamily: 'Arial', color: '#445566',
+      }));
+      y += lh;
+    }
+    y += 4;
+
+    // ── Ship upgrades ────────────────────────────────────────────────────
+    const dv2 = this.add.graphics();
+    dv2.lineStyle(1, 0x0E2040, 0.8);
+    dv2.lineBetween(col1, y, px + pw - 16, y);
+    con.add(dv2);
+    y += 8;
+    con.add(this.add.text(col1, y, 'SHIP', {
+      fontSize: '10px', fontFamily: 'Arial', fontStyle: 'bold', color: '#334455',
+    }));
+    y += 16;
+    const upg = inv.shipUpgrades;
+    const upgLines = [
+      `Engine   Mk ${upg.engine  || 0}`,
+      `Weapons  Mk ${upg.weapons || 0}`,
+      `Shields  Mk ${upg.shields || 0}`,
+    ];
+    for (const line of upgLines) {
+      const installed = !line.endsWith('0');
+      con.add(this.add.text(col1, y, line, {
+        fontSize: '12px', fontFamily: 'Arial',
+        color: installed ? '#44AA66' : '#334455',
+      }));
+      y += lh;
+    }
+    y += 4;
+
+    // ── Spoils ───────────────────────────────────────────────────────────
+    if (inv.spoils.length > 0) {
+      const dv3 = this.add.graphics();
+      dv3.lineStyle(1, 0x0E2040, 0.8);
+      dv3.lineBetween(col1, y, px + pw - 16, y);
+      con.add(dv3);
+      y += 8;
+      con.add(this.add.text(col1, y, 'SPOILS', {
+        fontSize: '10px', fontFamily: 'Arial', fontStyle: 'bold', color: '#334455',
+      }));
+      y += 16;
+      for (const sp of inv.spoils) {
+        con.add(this.add.text(col1, y, `${sp.name}  ×${sp.qty}`, {
+          fontSize: '12px', fontFamily: 'Arial', color: '#AABB88',
+        }));
+        con.add(this.add.text(col2, y, `${sp.sellPrice}c ea`, {
+          fontSize: '11px', fontFamily: 'Arial', color: '#556644',
+        }));
+        y += lh;
+      }
+    }
+  }
+
   // ------------------------------------------------------------------ Public API
 
   showCard(bodyData, bodyObj, navigable = true) {
@@ -455,7 +635,4 @@ export default class UIScene extends Phaser.Scene {
     this.statusText.setText(text);
   }
 
-  setScore(n) {
-    this.scoreText.setText('Blasted: ' + n);
-  }
 }

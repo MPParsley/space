@@ -8,6 +8,7 @@ import { CameraSystem } from '../systems/CameraSystem.js';
 import { SoundSystem } from '../systems/SoundSystem.js';
 import { AsteroidSystem } from '../systems/AsteroidSystem.js';
 import { EncounterSystem } from '../systems/EncounterSystem.js';
+import { getInventory } from '../systems/InventorySystem.js';
 
 // Main game scene — solar system navigation mode
 export default class SolarSystemScene extends Phaser.Scene {
@@ -49,7 +50,7 @@ export default class SolarSystemScene extends Phaser.Scene {
     this.soundSystem   = new SoundSystem();
 
     this.asteroidSystem = new AsteroidSystem(this);
-    this.asteroidSystem.onScore   = score => this._ui().setScore(score);
+    this.asteroidSystem.onScore   = earned => { getInventory().credits += earned; };
     this.asteroidSystem.onDestroy = ()    => this.soundSystem.playExplode();
 
     this.encounterSystem = new EncounterSystem(this, this.ship);

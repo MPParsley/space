@@ -5,6 +5,7 @@
 import { Spaceship } from '../entities/Spaceship.js';
 import { NavigationSystem } from '../systems/NavigationSystem.js';
 import { SoundSystem } from '../systems/SoundSystem.js';
+import { getInventory } from '../systems/InventorySystem.js';
 
 const PLAYER_HP_MAX  = 100;
 const BULLET_SPEED   = 490;
@@ -604,11 +605,19 @@ export default class BattleScene extends Phaser.Scene {
       fontSize: '26px', fontFamily: "'Arial', sans-serif", fontStyle: 'bold', color: titleColor,
     }).setOrigin(0.5, 0));
 
-    const sub = playerWon === true  ? 'Enemy ship destroyed!'
-              : playerWon === false ? 'Warping back to Earth...'
-              :                      'You escaped the battle.';
+    let sub = playerWon === false ? 'Warping back to Earth...'
+            : playerWon === null  ? 'You escaped the battle.'
+            : 'Enemy ship destroyed!';
+    let creditsEarned = 0;
+    if (playerWon === true) {
+      creditsEarned = Math.round(this._enemyData.hpMax * 0.45)
+                    + Phaser.Math.Between(-15, 25);
+      getInventory().credits += creditsEarned;
+      sub = `+${creditsEarned} credits salvaged`;
+    }
     this._resultContainer.add(this.add.text(0, -8, sub, {
-      fontSize: '14px', fontFamily: "'Arial', sans-serif", color: '#AABBCC',
+      fontSize: '14px', fontFamily: "'Arial', sans-serif",
+      color: playerWon === true ? '#FFD700' : '#AABBCC',
     }).setOrigin(0.5, 0.5));
 
     const returnBtn = this.add.text(0, boxH * 0.5 - 14, '  Return to Solar System  ', {
